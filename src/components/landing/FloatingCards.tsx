@@ -10,7 +10,7 @@ const FloatingCards = () => {
       description: "Your wallet is your identity",
       icon: Wallet,
       color: "bg-accent",
-      position: "left-0 md:-left-16 top-0",
+      position: "left-4 md:left-8 lg:-left-4 top-8",
       delay: 0.6,
     },
     {
@@ -19,7 +19,7 @@ const FloatingCards = () => {
       description: "Chat like you're used to",
       icon: MessageSquare,
       color: "bg-accent-orange",
-      position: "right-0 md:-right-16 top-20",
+      position: "right-4 md:right-8 lg:-right-4 top-24",
       delay: 0.7,
     },
     {
@@ -28,7 +28,7 @@ const FloatingCards = () => {
       description: "Auto-resolve web3 profiles",
       icon: Link2,
       color: "bg-secondary",
-      position: "left-0 md:-left-24 bottom-32",
+      position: "left-4 md:left-8 lg:-left-8 bottom-24",
       delay: 0.8,
       hasAction: true,
     },
@@ -38,7 +38,7 @@ const FloatingCards = () => {
       description: "Every message is encrypted",
       icon: Shield,
       color: "bg-accent-purple",
-      position: "right-0 md:-right-20 bottom-16",
+      position: "right-4 md:right-8 lg:-right-6 bottom-12",
       delay: 0.9,
     },
   ];
