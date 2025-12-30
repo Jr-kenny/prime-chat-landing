@@ -2,8 +2,7 @@ import { motion } from "framer-motion";
 import { useAccount, useDisconnect } from "wagmi";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { LogOut, Moon, Sun, Send, Menu } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Moon, Sun, Send, ChevronLeft } from "lucide-react";
 
 interface Message {
   id: number;
@@ -13,12 +12,6 @@ interface Message {
   time: string;
   isOwn: boolean;
 }
-
-const mockConversations = [
-  { id: 1, name: "vitalik.eth", address: "0x7a25...8f3d", lastMessage: "The encrypted group chat feature is...", unread: 2 },
-  { id: 2, name: "punk6529.eth", address: "0x4b28...9c2e", lastMessage: "Let's discuss the NFT integration", unread: 0 },
-  { id: 3, name: "sassal.eth", address: "0x9d12...3f7a", lastMessage: "Great call yesterday!", unread: 1 },
-];
 
 const mockMessages: Message[] = [
   {
@@ -56,12 +49,11 @@ const mockMessages: Message[] = [
 ];
 
 const Chat = () => {
-  const { address, isConnected } = useAccount();
+  const { isConnected } = useAccount();
   const { disconnect } = useDisconnect();
   const navigate = useNavigate();
   const [isDark, setIsDark] = useState(false);
   const [messageInput, setMessageInput] = useState("");
-  const [showSidebar, setShowSidebar] = useState(true);
 
   useEffect(() => {
     if (!isConnected) {
@@ -77,8 +69,9 @@ const Chat = () => {
     }
   }, [isDark]);
 
-  const truncateAddress = (addr: string) => {
-    return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+  const handleDisconnect = () => {
+    disconnect();
+    navigate("/welcome");
   };
 
   return (
@@ -86,155 +79,145 @@ const Chat = () => {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
-      className="h-screen bg-background flex"
+      className="h-screen bg-background flex items-center justify-center p-4"
     >
-      {/* Sidebar */}
+      {/* Phone Frame */}
       <div
-        className={`${
-          showSidebar ? "w-80" : "w-0"
-        } transition-all duration-300 border-r border-border bg-card overflow-hidden flex-shrink-0`}
+        className={`relative w-full max-w-[380px] h-[85vh] max-h-[800px] rounded-[3rem] p-3 shadow-2xl transition-colors duration-300 ${
+          isDark ? "bg-foreground" : "bg-foreground"
+        }`}
       >
-        <div className="h-full flex flex-col min-w-[320px]">
-          {/* Sidebar Header */}
-          <div className="p-4 border-b border-border">
-            <div className="flex items-center justify-between">
-              <span className="text-xl font-bold">prime chat</span>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setIsDark(!isDark)}
-                  className="h-8 w-8"
-                >
-                  {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-                </Button>
-              </div>
-            </div>
-            <div className="mt-3 p-3 bg-secondary rounded-lg">
-              <p className="text-xs text-muted-foreground">Connected as</p>
-              <p className="font-medium text-sm">{address ? truncateAddress(address) : ""}</p>
+        {/* Screen */}
+        <div
+          className={`relative h-full rounded-[2.5rem] overflow-hidden flex flex-col transition-colors duration-300 ${
+            isDark ? "bg-[#0a0a0a]" : "bg-background"
+          }`}
+        >
+          {/* Status Bar */}
+          <div className="flex items-center justify-between px-6 pt-3 pb-2">
+            <span className={`text-xs font-medium ${isDark ? "text-white" : "text-foreground"}`}>
+              9:41
+            </span>
+            <div className="flex items-center gap-1">
+              <div className={`w-4 h-2 rounded-sm ${isDark ? "bg-white" : "bg-foreground"}`} />
             </div>
           </div>
 
-          {/* Conversations List */}
-          <div className="flex-1 overflow-y-auto">
-            <div className="p-2">
-              {mockConversations.map((conv) => (
-                <div
-                  key={conv.id}
-                  className={`p-3 rounded-lg cursor-pointer transition-colors ${
-                    conv.id === 1
-                      ? "bg-secondary"
-                      : "hover:bg-secondary/50"
+          {/* Header */}
+          <div className={`px-4 py-3 border-b ${isDark ? "border-white/10" : "border-border"}`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleDisconnect}
+                  className={`p-1.5 rounded-full transition-colors ${
+                    isDark ? "hover:bg-white/10" : "hover:bg-secondary"
                   }`}
                 >
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center text-accent-foreground font-bold">
-                      {conv.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <p className="font-medium text-sm truncate">{conv.name}</p>
-                        {conv.unread > 0 && (
-                          <span className="w-5 h-5 bg-primary text-primary-foreground text-xs rounded-full flex items-center justify-center">
-                            {conv.unread}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {conv.lastMessage}
-                      </p>
-                    </div>
-                  </div>
+                  <ChevronLeft className={`w-5 h-5 ${isDark ? "text-white" : "text-foreground"}`} />
+                </button>
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold ${
+                  isDark ? "bg-accent text-accent-foreground" : "bg-accent text-accent-foreground"
+                }`}>
+                  V
                 </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Disconnect */}
-          <div className="p-4 border-t border-border">
-            <Button
-              variant="ghost"
-              className="w-full justify-start text-muted-foreground hover:text-foreground"
-              onClick={() => disconnect()}
-            >
-              <LogOut className="h-4 w-4 mr-2" />
-              Disconnect
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
-        {/* Chat Header */}
-        <div className="h-16 border-b border-border flex items-center justify-between px-4">
-          <div className="flex items-center gap-3">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="md:hidden"
-              onClick={() => setShowSidebar(!showSidebar)}
-            >
-              <Menu className="h-5 w-5" />
-            </Button>
-            <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center text-accent-foreground font-bold">
-              V
-            </div>
-            <div>
-              <p className="font-semibold">vitalik.eth</p>
-              <p className="text-xs text-muted-foreground">0x7a25...8f3d</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {mockMessages.map((message) => (
-            <motion.div
-              key={message.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className={`flex ${message.isOwn ? "justify-end" : "justify-start"}`}
-            >
-              <div
-                className={`max-w-[70%] rounded-2xl px-4 py-3 ${
-                  message.isOwn
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-secondary text-secondary-foreground"
+                <div>
+                  <p className={`font-semibold text-sm ${isDark ? "text-white" : "text-foreground"}`}>
+                    vitalik.eth
+                  </p>
+                  <p className={`text-xs ${isDark ? "text-white/50" : "text-muted-foreground"}`}>
+                    0x7a25...8f3d
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsDark(!isDark)}
+                className={`p-2 rounded-full transition-colors ${
+                  isDark ? "bg-white/10 hover:bg-white/20" : "bg-secondary hover:bg-secondary/80"
                 }`}
               >
-                <p className="text-sm leading-relaxed">{message.content}</p>
-                <p
-                  className={`text-[10px] mt-1 ${
+                {isDark ? (
+                  <Sun className="w-4 h-4 text-white" />
+                ) : (
+                  <Moon className="w-4 h-4 text-foreground" />
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Messages */}
+          <div className="flex-1 px-4 py-4 space-y-4 overflow-y-auto">
+            {mockMessages.map((message) => (
+              <motion.div
+                key={message.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={`flex ${message.isOwn ? "justify-end" : "justify-start"}`}
+              >
+                <div
+                  className={`max-w-[80%] rounded-2xl px-4 py-2.5 ${
                     message.isOwn
-                      ? "text-primary-foreground/70"
-                      : "text-muted-foreground"
+                      ? isDark
+                        ? "bg-accent text-accent-foreground"
+                        : "bg-primary text-primary-foreground"
+                      : isDark
+                      ? "bg-white/10 text-white"
+                      : "bg-secondary text-secondary-foreground"
                   }`}
                 >
-                  {message.time}
-                </p>
-              </div>
-            </motion.div>
-          ))}
-        </div>
+                  <p className="text-sm leading-relaxed">{message.content}</p>
+                  <p
+                    className={`text-[10px] mt-1 ${
+                      message.isOwn
+                        ? isDark
+                          ? "text-accent-foreground/70"
+                          : "text-primary-foreground/70"
+                        : isDark
+                        ? "text-white/50"
+                        : "text-muted-foreground"
+                    }`}
+                  >
+                    {message.time}
+                  </p>
+                </div>
+              </motion.div>
+            ))}
+          </div>
 
-        {/* Input */}
-        <div className="p-4 border-t border-border">
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              value={messageInput}
-              onChange={(e) => setMessageInput(e.target.value)}
-              placeholder="Type a message..."
-              className="flex-1 bg-secondary rounded-full px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-            <Button size="icon" className="rounded-full h-11 w-11">
-              <Send className="h-4 w-4" />
-            </Button>
+          {/* Input */}
+          <div className={`px-4 py-3 border-t ${isDark ? "border-white/10" : "border-border"}`}>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={messageInput}
+                onChange={(e) => setMessageInput(e.target.value)}
+                placeholder="Message..."
+                className={`flex-1 rounded-full px-4 py-2.5 text-sm focus:outline-none transition-colors ${
+                  isDark
+                    ? "bg-white/10 text-white placeholder:text-white/50"
+                    : "bg-secondary text-foreground placeholder:text-muted-foreground"
+                }`}
+              />
+              <button
+                className={`p-2.5 rounded-full transition-colors ${
+                  isDark
+                    ? "bg-accent text-accent-foreground hover:bg-accent/90"
+                    : "bg-primary text-primary-foreground hover:bg-primary/90"
+                }`}
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Home Indicator */}
+          <div className="flex justify-center py-2">
+            <div className={`w-32 h-1 rounded-full ${isDark ? "bg-white/30" : "bg-foreground/20"}`} />
           </div>
         </div>
       </div>
+
+      {/* Reflection/Glow */}
+      <div className="absolute -inset-4 -z-10 bg-accent/10 rounded-[4rem] blur-3xl opacity-50 pointer-events-none" />
     </motion.div>
   );
 };
