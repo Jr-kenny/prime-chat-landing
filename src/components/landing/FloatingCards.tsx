@@ -10,7 +10,8 @@ const FloatingCards = () => {
       description: "Your wallet is your identity",
       icon: Wallet,
       color: "bg-accent",
-      position: "left-4 md:left-8 lg:-left-4 top-8",
+      side: "left" as const,
+      verticalOffset: "-60px",
       delay: 0.6,
     },
     {
@@ -19,7 +20,8 @@ const FloatingCards = () => {
       description: "Chat like you're used to",
       icon: MessageSquare,
       color: "bg-accent-orange",
-      position: "right-4 md:right-8 lg:-right-4 top-24",
+      side: "right" as const,
+      verticalOffset: "-20px",
       delay: 0.7,
     },
     {
@@ -28,7 +30,8 @@ const FloatingCards = () => {
       description: "Auto-resolve web3 profiles",
       icon: Link2,
       color: "bg-secondary",
-      position: "left-4 md:left-8 lg:-left-8 bottom-24",
+      side: "left" as const,
+      verticalOffset: "100px",
       delay: 0.8,
       hasAction: true,
     },
@@ -38,7 +41,8 @@ const FloatingCards = () => {
       description: "Every message is encrypted",
       icon: Shield,
       color: "bg-accent-purple",
-      position: "right-4 md:right-8 lg:-right-6 bottom-12",
+      side: "right" as const,
+      verticalOffset: "140px",
       delay: 0.9,
     },
   ];
@@ -51,7 +55,15 @@ const FloatingCards = () => {
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.5, delay: card.delay }}
-          className={`absolute ${card.position} hidden lg:block`}
+          className="absolute hidden lg:block"
+          style={{
+            top: `calc(50% + ${card.verticalOffset})`,
+            transform: 'translateY(-50%)',
+            ...(card.side === 'left' 
+              ? { right: 'calc(50% + 140px)' }
+              : { left: 'calc(50% + 140px)' }
+            ),
+          }}
         >
           <motion.div
             animate={{ y: [0, -8, 0] }}
