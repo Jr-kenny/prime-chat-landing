@@ -15,9 +15,11 @@ const Index = () => {
         {/* Phone Mockup Section */}
         <section className="relative py-8 md:py-16">
           <div className="container mx-auto px-6">
-            <div className="relative flex justify-center">
-              <FloatingCards />
-              <ChatMockup />
+            <div className="relative mx-auto max-w-3xl flex items-center justify-center">
+              <div className="relative w-[320px] mx-auto">
+                <ChatMockup />
+                <FloatingCards />
+              </div>
             </div>
           </div>
         </section>
