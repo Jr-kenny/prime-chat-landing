@@ -1,5 +1,5 @@
 import { Client, type Signer } from '@xmtp/browser-sdk';
-import { type WalletClient } from 'viem';
+import { type WalletClient, toBytes } from 'viem';
 
 export const createXmtpSigner = (walletClient: WalletClient): Signer => {
   const account = walletClient.account;
@@ -18,8 +18,8 @@ export const createXmtpSigner = (walletClient: WalletClient): Signer => {
         message,
         account,
       });
-      // Convert hex string signature to bytes for XMTP
-      return new TextEncoder().encode(signature);
+      // Convert hex string signature to actual binary bytes
+      return typeof signature === 'string' ? toBytes(signature) : signature;
     },
   };
 };
