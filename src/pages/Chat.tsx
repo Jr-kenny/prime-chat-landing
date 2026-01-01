@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { 
   Moon, Sun, Send, Search, Settings, Plus, 
-  MoreVertical, Phone, Video, Smile, Paperclip,
+  MoreVertical, Smile, Paperclip,
   ArrowLeft, Users, Shield
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -264,12 +264,6 @@ const Chat = () => {
             </div>
           </div>
           <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon" className="h-9 w-9">
-              <Phone className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="icon" className="h-9 w-9">
-              <Video className="h-4 w-4" />
-            </Button>
             <Button variant="ghost" size="icon" className="h-9 w-9">
               <Users className="h-4 w-4" />
             </Button>
