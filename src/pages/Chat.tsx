@@ -1,111 +1,165 @@
 import { motion } from "framer-motion";
-import { useAccount, useDisconnect } from "wagmi";
+import { useAccount, useDisconnect, useWalletClient } from "wagmi";
 import { useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { 
   Moon, Sun, Send, Search, Settings, Plus, 
   MoreVertical, Smile, Paperclip,
-  ArrowLeft, Users, Shield
+  ArrowLeft, Users, Shield, Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { initializeXmtpClient, type Client } from "@/lib/xmtp";
+import { Dm, Group, type DecodedMessage } from "@xmtp/browser-sdk";
+import { toast } from "sonner";
 
-interface Conversation {
-  id: number;
+interface DisplayConversation {
+  id: string;
+  peerAddress: string;
   name: string;
-  address: string;
   lastMessage: string;
   time: string;
   unread: number;
   avatar: string;
-  online: boolean;
+  xmtpConversation: Dm | Group;
 }
 
-interface Message {
-  id: number;
+interface DisplayMessage {
+  id: string;
   content: string;
   time: string;
   isOwn: boolean;
   status?: "sent" | "delivered" | "read";
 }
 
-const conversations: Conversation[] = [
-  {
-    id: 1,
-    name: "vitalik.eth",
-    address: "0x7a25...8f3d",
-    lastMessage: "The encrypted group chat feature is exactly what we need.",
-    time: "2:36 PM",
-    unread: 2,
-    avatar: "V",
-    online: true,
-  },
-  {
-    id: 2,
-    name: "punk6529.eth",
-    address: "0x4b21...9c7e",
-    lastMessage: "Let's discuss the NFT integration tomorrow.",
-    time: "1:15 PM",
-    unread: 0,
-    avatar: "P",
-    online: true,
-  },
-  {
-    id: 3,
-    name: "sassal.eth",
-    address: "0x8d43...2f1a",
-    lastMessage: "Great podcast episode! 🎙️",
-    time: "Yesterday",
-    unread: 0,
-    avatar: "S",
-    online: false,
-  },
-  {
-    id: 4,
-    name: "cobie.eth",
-    address: "0x2e67...5b8c",
-    lastMessage: "Check out this alpha...",
-    time: "Yesterday",
-    unread: 5,
-    avatar: "C",
-    online: false,
-  },
-  {
-    id: 5,
-    name: "DegenSpartan",
-    address: "0x9f12...3d4e",
-    lastMessage: "wagmi ser 🚀",
-    time: "Monday",
-    unread: 0,
-    avatar: "D",
-    online: true,
-  },
-];
-
 const Chat = () => {
   const { isConnected, address } = useAccount();
   const { disconnect } = useDisconnect();
+  const { data: walletClient } = useWalletClient();
   const navigate = useNavigate();
+  
   const [isDark, setIsDark] = useState(false);
   const [messageInput, setMessageInput] = useState("");
-  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(conversations[0]);
-  const [messages, setMessages] = useState<Message[]>([
-    { id: 1, content: "Hey! Saw your proposal on the DAO. Really solid thinking on the tokenomics.", time: "2:34 PM", isOwn: false },
-    { id: 2, content: "Thanks! Been working on it for weeks. The community feedback has been incredible.", time: "2:35 PM", isOwn: true, status: "read" },
-    { id: 3, content: "The encrypted group chat feature is exactly what we need. When's the launch?", time: "2:36 PM", isOwn: false },
-    { id: 4, content: "We're targeting next month. Still need to finish the audit.", time: "2:38 PM", isOwn: true, status: "read" },
-    { id: 5, content: "Perfect. Let me know if you need any help with the security review.", time: "2:40 PM", isOwn: false },
-    { id: 6, content: "That would be amazing! I'll send over the docs.", time: "2:41 PM", isOwn: true, status: "delivered" },
-  ]);
   const [showMobileChat, setShowMobileChat] = useState(false);
+  
+  // XMTP State
+  const [xmtpClient, setXmtpClient] = useState<Client | null>(null);
+  const [isInitializing, setIsInitializing] = useState(false);
+  const [conversations, setConversations] = useState<DisplayConversation[]>([]);
+  const [selectedConversation, setSelectedConversation] = useState<DisplayConversation | null>(null);
+  const [messages, setMessages] = useState<DisplayMessage[]>([]);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [isSending, setIsSending] = useState(false);
 
+  // Redirect if not connected
   useEffect(() => {
     if (!isConnected) {
       navigate("/welcome");
     }
   }, [isConnected, navigate]);
 
+  // Initialize XMTP client
+  useEffect(() => {
+    const initXmtp = async () => {
+      if (!walletClient || xmtpClient || isInitializing) return;
+      
+      setIsInitializing(true);
+      try {
+        const client = await initializeXmtpClient(walletClient);
+        setXmtpClient(client);
+        toast.success("Connected to XMTP network");
+      } catch (error) {
+        console.error("Failed to initialize XMTP:", error);
+        toast.error("Failed to connect to XMTP network");
+      } finally {
+        setIsInitializing(false);
+      }
+    };
+
+    initXmtp();
+  }, [walletClient, xmtpClient, isInitializing]);
+
+  // Load conversations from XMTP
+  useEffect(() => {
+    const loadConversations = async () => {
+      if (!xmtpClient) return;
+      
+      try {
+        // Sync with network
+        await xmtpClient.conversations.sync();
+        
+        // List all conversations
+        const convList = await xmtpClient.conversations.list();
+        
+        const displayConvs: DisplayConversation[] = await Promise.all(
+          convList.map(async (conv, index) => {
+            // Get peer identifier depending on conversation type
+            let peerAddress = 'Unknown';
+            if (conv instanceof Dm) {
+              peerAddress = await conv.peerInboxId() || 'Unknown';
+            } else if (conv instanceof Group) {
+              peerAddress = conv.name || `Group ${index + 1}`;
+            }
+            
+            const messages = await conv.messages({ limit: 1n });
+            const lastMsg = messages[0];
+            
+            return {
+              id: conv.id,
+              peerAddress,
+              name: `${peerAddress.slice(0, 6)}...${peerAddress.slice(-4)}`,
+              lastMessage: lastMsg?.content?.toString() || 'No messages yet',
+              time: lastMsg ? new Date(Number(lastMsg.sentAtNs) / 1000000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+              unread: 0,
+              avatar: peerAddress.slice(2, 4).toUpperCase(),
+              xmtpConversation: conv,
+            };
+          })
+        );
+        
+        setConversations(displayConvs);
+        if (displayConvs.length > 0 && !selectedConversation) {
+          setSelectedConversation(displayConvs[0]);
+        }
+      } catch (error) {
+        console.error("Failed to load conversations:", error);
+      }
+    };
+
+    loadConversations();
+  }, [xmtpClient]);
+
+  // Load messages for selected conversation
+  useEffect(() => {
+    const loadMessages = async () => {
+      if (!selectedConversation?.xmtpConversation) return;
+      
+      setIsLoadingMessages(true);
+      try {
+        await selectedConversation.xmtpConversation.sync();
+        const xmtpMessages = await selectedConversation.xmtpConversation.messages();
+        
+        const displayMessages: DisplayMessage[] = xmtpMessages.map((msg) => ({
+          id: msg.id,
+          content: msg.content?.toString() || '',
+          time: new Date(Number(msg.sentAtNs) / 1000000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isOwn: msg.senderInboxId === xmtpClient?.inboxId,
+          status: "delivered" as const,
+        }));
+        
+        setMessages(displayMessages);
+      } catch (error) {
+        console.error("Failed to load messages:", error);
+      } finally {
+        setIsLoadingMessages(false);
+      }
+    };
+
+    loadMessages();
+  }, [selectedConversation, xmtpClient]);
+
+  // Dark mode toggle
   useEffect(() => {
     if (isDark) {
       document.documentElement.classList.add("dark");
@@ -114,17 +168,34 @@ const Chat = () => {
     }
   }, [isDark]);
 
-  const handleSendMessage = () => {
-    if (!messageInput.trim()) return;
-    const newMessage: Message = {
-      id: messages.length + 1,
-      content: messageInput,
+  const handleSendMessage = async () => {
+    if (!messageInput.trim() || !selectedConversation?.xmtpConversation || isSending) return;
+    
+    const content = messageInput.trim();
+    setMessageInput("");
+    setIsSending(true);
+    
+    // Optimistic update
+    const optimisticMessage: DisplayMessage = {
+      id: `temp-${Date.now()}`,
+      content,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       isOwn: true,
       status: "sent"
     };
-    setMessages([...messages, newMessage]);
-    setMessageInput("");
+    setMessages(prev => [...prev, optimisticMessage]);
+    
+    try {
+      await selectedConversation.xmtpConversation.send(content);
+    } catch (error) {
+      console.error("Failed to send message:", error);
+      toast.error("Failed to send message");
+      // Remove optimistic message on error
+      setMessages(prev => prev.filter(m => m.id !== optimisticMessage.id));
+      setMessageInput(content);
+    } finally {
+      setIsSending(false);
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -134,7 +205,7 @@ const Chat = () => {
     }
   };
 
-  const selectConversation = (conv: Conversation) => {
+  const selectConversation = (conv: DisplayConversation) => {
     setSelectedConversation(conv);
     setShowMobileChat(true);
   };
@@ -202,9 +273,6 @@ const Chat = () => {
                 }`}>
                   {conv.avatar}
                 </div>
-                {conv.online && (
-                  <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-card" />
-                )}
               </div>
               <div className="flex-1 min-w-0 text-left">
                 <div className="flex items-center justify-between">
@@ -254,13 +322,10 @@ const Chat = () => {
               <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center text-accent-foreground font-bold">
                 {selectedConversation?.avatar}
               </div>
-              {selectedConversation?.online && (
-                <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-card" />
-              )}
             </div>
             <div>
               <p className="font-semibold text-foreground">{selectedConversation?.name}</p>
-              <p className="text-xs text-muted-foreground">{selectedConversation?.address}</p>
+              <p className="text-xs text-muted-foreground">{selectedConversation?.peerAddress?.slice(0, 10)}...</p>
             </div>
           </div>
           <div className="flex items-center gap-1">
