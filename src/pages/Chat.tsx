@@ -5,14 +5,16 @@ import { useEffect, useState, useCallback } from "react";
 import { 
   Moon, Sun, Send, Search, Settings, Plus, 
   MoreVertical, Smile, Paperclip,
-  ArrowLeft, Users, Shield, Loader2
+  ArrowLeft, Users, Shield, Loader2, Check, X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { initializeXmtpClient, type Client } from "@/lib/xmtp";
-import { Dm, Group, type DecodedMessage } from "@xmtp/browser-sdk";
+import { Dm, Group, ConsentState } from "@xmtp/browser-sdk";
 import { toast } from "sonner";
+import { NewConversationDialog } from "@/components/chat/NewConversationDialog";
+import { ConsentTabs, type ConsentFilter } from "@/components/chat/ConsentTabs";
 
 interface DisplayConversation {
   id: string;
@@ -23,6 +25,7 @@ interface DisplayConversation {
   unread: number;
   avatar: string;
   xmtpConversation: Dm | Group;
+  consentState: "allowed" | "unknown" | "denied";
 }
 
 interface DisplayMessage {
@@ -51,6 +54,11 @@ const Chat = () => {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  
+  // New conversation dialog & consent filter
+  const [showNewConversation, setShowNewConversation] = useState(false);
+  const [consentFilter, setConsentFilter] = useState<ConsentFilter>("allowed");
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Redirect if not connected
   useEffect(() => {
@@ -81,54 +89,58 @@ const Chat = () => {
   }, [walletClient, xmtpClient, isInitializing]);
 
   // Load conversations from XMTP
-  useEffect(() => {
-    const loadConversations = async () => {
-      if (!xmtpClient) return;
+  const loadConversations = useCallback(async () => {
+    if (!xmtpClient) return;
+    
+    try {
+      // Sync with network
+      await xmtpClient.conversations.sync();
       
-      try {
-        // Sync with network
-        await xmtpClient.conversations.sync();
-        
-        // List all conversations
-        const convList = await xmtpClient.conversations.list();
-        
-        const displayConvs: DisplayConversation[] = await Promise.all(
-          convList.map(async (conv, index) => {
-            // Get peer identifier depending on conversation type
-            let peerAddress = 'Unknown';
-            if (conv instanceof Dm) {
-              peerAddress = await conv.peerInboxId() || 'Unknown';
-            } else if (conv instanceof Group) {
-              peerAddress = conv.name || `Group ${index + 1}`;
-            }
-            
-            const messages = await conv.messages({ limit: 1n });
-            const lastMsg = messages[0];
-            
-            return {
-              id: conv.id,
-              peerAddress,
-              name: `${peerAddress.slice(0, 6)}...${peerAddress.slice(-4)}`,
-              lastMessage: lastMsg?.content?.toString() || 'No messages yet',
-              time: lastMsg ? new Date(Number(lastMsg.sentAtNs) / 1000000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
-              unread: 0,
-              avatar: peerAddress.slice(2, 4).toUpperCase(),
-              xmtpConversation: conv,
-            };
-          })
-        );
-        
-        setConversations(displayConvs);
-        if (displayConvs.length > 0 && !selectedConversation) {
-          setSelectedConversation(displayConvs[0]);
-        }
-      } catch (error) {
-        console.error("Failed to load conversations:", error);
-      }
-    };
-
-    loadConversations();
+      // List all conversations
+      const convList = await xmtpClient.conversations.list();
+      
+      const displayConvs: DisplayConversation[] = await Promise.all(
+        convList.map(async (conv, index) => {
+          // Get peer identifier depending on conversation type
+          let peerAddress = 'Unknown';
+          if (conv instanceof Dm) {
+            peerAddress = await conv.peerInboxId() || 'Unknown';
+          } else if (conv instanceof Group) {
+            peerAddress = conv.name || `Group ${index + 1}`;
+          }
+          
+          const messages = await conv.messages({ limit: 1n });
+          const lastMsg = messages[0];
+          
+          // Get consent state for this conversation
+          const consent = await conv.consentState();
+          let consentState: "allowed" | "unknown" | "denied" = "unknown";
+          if (consent === ConsentState.Allowed) consentState = "allowed";
+          else if (consent === ConsentState.Denied) consentState = "denied";
+          
+          return {
+            id: conv.id,
+            peerAddress,
+            name: `${peerAddress.slice(0, 6)}...${peerAddress.slice(-4)}`,
+            lastMessage: lastMsg?.content?.toString() || 'No messages yet',
+            time: lastMsg ? new Date(Number(lastMsg.sentAtNs) / 1000000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+            unread: 0,
+            avatar: peerAddress.slice(2, 4).toUpperCase(),
+            xmtpConversation: conv,
+            consentState,
+          };
+        })
+      );
+      
+      setConversations(displayConvs);
+    } catch (error) {
+      console.error("Failed to load conversations:", error);
+    }
   }, [xmtpClient]);
+
+  useEffect(() => {
+    loadConversations();
+  }, [loadConversations]);
 
   // Load messages for selected conversation
   useEffect(() => {
@@ -210,6 +222,40 @@ const Chat = () => {
     setShowMobileChat(true);
   };
 
+  // Allow or deny a conversation (consent management)
+  const handleConsentAction = async (conv: DisplayConversation, action: "allow" | "deny") => {
+    try {
+      if (action === "allow") {
+        await conv.xmtpConversation.updateConsentState(ConsentState.Allowed);
+        toast.success("Contact allowed");
+      } else {
+        await conv.xmtpConversation.updateConsentState(ConsentState.Denied);
+        toast.success("Contact blocked");
+      }
+      // Refresh conversations to update consent states
+      await loadConversations();
+    } catch (error) {
+      console.error("Failed to update consent:", error);
+      toast.error("Failed to update contact");
+    }
+  };
+
+  // Filter conversations by consent state and search
+  const filteredConversations = conversations.filter((conv) => {
+    const matchesConsent = conv.consentState === consentFilter;
+    const matchesSearch = searchQuery === "" || 
+      conv.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      conv.peerAddress.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesConsent && matchesSearch;
+  });
+
+  // Count conversations by consent state
+  const consentCounts = {
+    allowed: conversations.filter(c => c.consentState === "allowed").length,
+    unknown: conversations.filter(c => c.consentState === "unknown").length,
+    denied: conversations.filter(c => c.consentState === "denied").length,
+  };
+
   // Sidebar Component
   const Sidebar = () => (
     <div className="h-full flex flex-col bg-card border-r border-border">
@@ -231,6 +277,17 @@ const Chat = () => {
           <Input 
             placeholder="Search conversations..." 
             className="pl-9 bg-secondary/50 border-0"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
+        
+        {/* Consent Tabs */}
+        <div className="mt-3">
+          <ConsentTabs 
+            value={consentFilter} 
+            onChange={setConsentFilter} 
+            counts={consentCounts}
           />
         </div>
       </div>
@@ -255,47 +312,106 @@ const Chat = () => {
       {/* Conversations List */}
       <ScrollArea className="flex-1">
         <div className="p-2">
-          {conversations.map((conv) => (
-            <motion.button
-              key={conv.id}
-              whileHover={{ scale: 1.01 }}
-              whileTap={{ scale: 0.99 }}
-              onClick={() => selectConversation(conv)}
-              className={`w-full p-3 rounded-xl flex items-center gap-3 transition-colors mb-1 ${
-                selectedConversation?.id === conv.id 
-                  ? "bg-accent/20 border border-accent/30" 
-                  : "hover:bg-secondary/50"
-              }`}
-            >
-              <div className="relative">
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg ${
-                  selectedConversation?.id === conv.id ? "bg-accent text-accent-foreground" : "bg-secondary text-foreground"
-                }`}>
-                  {conv.avatar}
+          {filteredConversations.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <p className="text-sm">
+                {consentFilter === "allowed" && "No conversations yet"}
+                {consentFilter === "unknown" && "No message requests"}
+                {consentFilter === "denied" && "No blocked contacts"}
+              </p>
+            </div>
+          ) : (
+            filteredConversations.map((conv) => (
+              <motion.div
+                key={conv.id}
+                whileHover={{ scale: 1.01 }}
+                whileTap={{ scale: 0.99 }}
+                className={`w-full p-3 rounded-xl flex items-center gap-3 transition-colors mb-1 cursor-pointer ${
+                  selectedConversation?.id === conv.id 
+                    ? "bg-accent/20 border border-accent/30" 
+                    : "hover:bg-secondary/50"
+                }`}
+              >
+                <div 
+                  className="flex-1 flex items-center gap-3"
+                  onClick={() => selectConversation(conv)}
+                >
+                  <div className="relative">
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg ${
+                      selectedConversation?.id === conv.id ? "bg-accent text-accent-foreground" : "bg-secondary text-foreground"
+                    }`}>
+                      {conv.avatar}
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0 text-left">
+                    <div className="flex items-center justify-between">
+                      <p className="font-semibold text-sm text-foreground truncate">{conv.name}</p>
+                      <span className="text-xs text-muted-foreground">{conv.time}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm text-muted-foreground truncate">{conv.lastMessage}</p>
+                      {conv.unread > 0 && (
+                        <span className="ml-2 px-2 py-0.5 bg-accent text-accent-foreground text-xs font-medium rounded-full">
+                          {conv.unread}
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div className="flex-1 min-w-0 text-left">
-                <div className="flex items-center justify-between">
-                  <p className="font-semibold text-sm text-foreground truncate">{conv.name}</p>
-                  <span className="text-xs text-muted-foreground">{conv.time}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-muted-foreground truncate">{conv.lastMessage}</p>
-                  {conv.unread > 0 && (
-                    <span className="ml-2 px-2 py-0.5 bg-accent text-accent-foreground text-xs font-medium rounded-full">
-                      {conv.unread}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </motion.button>
-          ))}
+                
+                {/* Consent action buttons for unknown/denied */}
+                {conv.consentState === "unknown" && (
+                  <div className="flex gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 text-green-500 hover:bg-green-500/10"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleConsentAction(conv, "allow");
+                      }}
+                    >
+                      <Check className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleConsentAction(conv, "deny");
+                      }}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+                {conv.consentState === "denied" && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-xs"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleConsentAction(conv, "allow");
+                    }}
+                  >
+                    Unblock
+                  </Button>
+                )}
+              </motion.div>
+            ))
+          )}
         </div>
       </ScrollArea>
 
       {/* New Chat Button */}
       <div className="p-4 border-t border-border">
-        <Button className="w-full gap-2" variant="default">
+        <Button 
+          className="w-full gap-2" 
+          variant="default"
+          onClick={() => setShowNewConversation(true)}
+        >
           <Plus className="h-4 w-4" />
           New Conversation
         </Button>
@@ -415,6 +531,7 @@ const Chat = () => {
   );
 
   return (
+    <>
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -444,6 +561,15 @@ const Chat = () => {
         )}
       </div>
     </motion.div>
+    
+    {/* New Conversation Dialog */}
+    <NewConversationDialog
+      open={showNewConversation}
+      onOpenChange={setShowNewConversation}
+      xmtpClient={xmtpClient}
+      onConversationCreated={loadConversations}
+    />
+    </>
   );
 };
 
