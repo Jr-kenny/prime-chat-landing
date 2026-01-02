@@ -67,10 +67,20 @@ const Chat = () => {
     }
   }, [isConnected, navigate]);
 
+  // Reset XMTP client when wallet address changes
+  useEffect(() => {
+    // Clear XMTP state when wallet changes
+    setXmtpClient(null);
+    setConversations([]);
+    setSelectedConversation(null);
+    setMessages([]);
+    setIsInitializing(false);
+  }, [address]);
+
   // Initialize XMTP client
   useEffect(() => {
     const initXmtp = async () => {
-      if (!walletClient || xmtpClient || isInitializing) return;
+      if (!walletClient || !address || xmtpClient || isInitializing) return;
       
       setIsInitializing(true);
       try {
@@ -86,7 +96,7 @@ const Chat = () => {
     };
 
     initXmtp();
-  }, [walletClient, xmtpClient, isInitializing]);
+  }, [walletClient, address, xmtpClient, isInitializing]);
 
   // Load conversations from XMTP
   const loadConversations = useCallback(async () => {
@@ -199,6 +209,17 @@ const Chat = () => {
     
     try {
       await selectedConversation.xmtpConversation.send(content);
+      // Sync to get the actual message from network and replace optimistic one
+      await selectedConversation.xmtpConversation.sync();
+      const xmtpMessages = await selectedConversation.xmtpConversation.messages();
+      const displayMessages: DisplayMessage[] = xmtpMessages.map((msg) => ({
+        id: msg.id,
+        content: msg.content?.toString() || '',
+        time: new Date(Number(msg.sentAtNs) / 1000000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isOwn: msg.senderInboxId === xmtpClient?.inboxId,
+        status: "delivered" as const,
+      }));
+      setMessages(displayMessages);
     } catch (error) {
       console.error("Failed to send message:", error);
       toast.error("Failed to send message");
