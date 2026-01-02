@@ -323,9 +323,13 @@ const Chat = () => {
             <p className="font-medium text-sm text-foreground truncate">Connected Wallet</p>
             <p className="text-xs text-muted-foreground truncate">{address?.slice(0, 6)}...{address?.slice(-4)}</p>
           </div>
-          <div className="flex items-center gap-1 text-xs text-accent">
-            <Shield className="h-3 w-3" />
-            <span>XMTP</span>
+          <div className={`flex items-center gap-1 text-xs ${xmtpClient ? 'text-green-500' : isInitializing ? 'text-yellow-500' : 'text-muted-foreground'}`}>
+            {isInitializing ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Shield className="h-3 w-3" />
+            )}
+            <span>{xmtpClient ? 'XMTP' : isInitializing ? 'Connecting...' : 'Disconnected'}</span>
           </div>
         </div>
       </div>
@@ -432,9 +436,24 @@ const Chat = () => {
           className="w-full gap-2" 
           variant="default"
           onClick={() => setShowNewConversation(true)}
+          disabled={!xmtpClient || isInitializing}
         >
-          <Plus className="h-4 w-4" />
-          New Conversation
+          {isInitializing ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Connecting to XMTP...
+            </>
+          ) : !xmtpClient ? (
+            <>
+              <Shield className="h-4 w-4" />
+              Sign to Connect XMTP
+            </>
+          ) : (
+            <>
+              <Plus className="h-4 w-4" />
+              New Conversation
+            </>
+          )}
         </Button>
       </div>
     </div>
