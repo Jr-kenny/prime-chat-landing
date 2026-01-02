@@ -256,8 +256,8 @@ const Chat = () => {
     denied: conversations.filter(c => c.consentState === "denied").length,
   };
 
-  // Sidebar Component
-  const Sidebar = () => (
+  // Sidebar JSX
+  const sidebarContent = (
     <div className="h-full flex flex-col bg-card border-r border-border">
       {/* Sidebar Header */}
       <div className="p-4 border-b border-border">
@@ -419,8 +419,8 @@ const Chat = () => {
     </div>
   );
 
-  // Chat Area Component
-  const ChatArea = () => (
+  // Chat Area JSX
+  const chatAreaContent = (
     <div className="h-full flex flex-col bg-background">
       {/* Chat Header */}
       <div className="px-4 py-3 border-b border-border bg-card/50 backdrop-blur-sm">
@@ -517,8 +517,8 @@ const Chat = () => {
     </div>
   );
 
-  // Empty State
-  const EmptyState = () => (
+  // Empty State JSX
+  const emptyStateContent = (
     <div className="h-full flex flex-col items-center justify-center bg-background text-center p-8">
       <div className="w-20 h-20 rounded-full bg-secondary/50 flex items-center justify-center mb-6">
         <Shield className="h-10 w-10 text-muted-foreground" />
@@ -541,10 +541,10 @@ const Chat = () => {
       {/* Desktop Layout */}
       <div className="hidden lg:flex w-full">
         <div className="w-80 xl:w-96 shrink-0">
-          <Sidebar />
+          {sidebarContent}
         </div>
         <div className="flex-1">
-          {selectedConversation ? <ChatArea /> : <EmptyState />}
+          {selectedConversation ? chatAreaContent : emptyStateContent}
         </div>
       </div>
 
@@ -552,11 +552,11 @@ const Chat = () => {
       <div className="flex lg:hidden w-full">
         {!showMobileChat ? (
           <div className="w-full">
-            <Sidebar />
+            {sidebarContent}
           </div>
         ) : (
           <div className="w-full">
-            <ChatArea />
+            {chatAreaContent}
           </div>
         )}
       </div>
