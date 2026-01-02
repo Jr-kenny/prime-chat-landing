@@ -67,20 +67,10 @@ const Chat = () => {
     }
   }, [isConnected, navigate]);
 
-  // Reset XMTP client when wallet address changes
-  useEffect(() => {
-    // Clear XMTP state when wallet changes
-    setXmtpClient(null);
-    setConversations([]);
-    setSelectedConversation(null);
-    setMessages([]);
-    setIsInitializing(false);
-  }, [address]);
-
   // Initialize XMTP client
   useEffect(() => {
     const initXmtp = async () => {
-      if (!walletClient || !address || xmtpClient || isInitializing) return;
+      if (!walletClient || xmtpClient || isInitializing) return;
       
       setIsInitializing(true);
       try {
@@ -96,7 +86,7 @@ const Chat = () => {
     };
 
     initXmtp();
-  }, [walletClient, address, xmtpClient, isInitializing]);
+  }, [walletClient, xmtpClient, isInitializing]);
 
   // Load conversations from XMTP
   const loadConversations = useCallback(async () => {
@@ -209,17 +199,6 @@ const Chat = () => {
     
     try {
       await selectedConversation.xmtpConversation.send(content);
-      // Sync to get the actual message from network and replace optimistic one
-      await selectedConversation.xmtpConversation.sync();
-      const xmtpMessages = await selectedConversation.xmtpConversation.messages();
-      const displayMessages: DisplayMessage[] = xmtpMessages.map((msg) => ({
-        id: msg.id,
-        content: msg.content?.toString() || '',
-        time: new Date(Number(msg.sentAtNs) / 1000000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        isOwn: msg.senderInboxId === xmtpClient?.inboxId,
-        status: "delivered" as const,
-      }));
-      setMessages(displayMessages);
     } catch (error) {
       console.error("Failed to send message:", error);
       toast.error("Failed to send message");
@@ -323,13 +302,9 @@ const Chat = () => {
             <p className="font-medium text-sm text-foreground truncate">Connected Wallet</p>
             <p className="text-xs text-muted-foreground truncate">{address?.slice(0, 6)}...{address?.slice(-4)}</p>
           </div>
-          <div className={`flex items-center gap-1 text-xs ${xmtpClient ? 'text-green-500' : isInitializing ? 'text-yellow-500' : 'text-muted-foreground'}`}>
-            {isInitializing ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <Shield className="h-3 w-3" />
-            )}
-            <span>{xmtpClient ? 'XMTP' : isInitializing ? 'Connecting...' : 'Disconnected'}</span>
+          <div className="flex items-center gap-1 text-xs text-accent">
+            <Shield className="h-3 w-3" />
+            <span>XMTP</span>
           </div>
         </div>
       </div>
@@ -436,24 +411,9 @@ const Chat = () => {
           className="w-full gap-2" 
           variant="default"
           onClick={() => setShowNewConversation(true)}
-          disabled={!xmtpClient || isInitializing}
         >
-          {isInitializing ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Connecting to XMTP...
-            </>
-          ) : !xmtpClient ? (
-            <>
-              <Shield className="h-4 w-4" />
-              Sign to Connect XMTP
-            </>
-          ) : (
-            <>
-              <Plus className="h-4 w-4" />
-              New Conversation
-            </>
-          )}
+          <Plus className="h-4 w-4" />
+          New Conversation
         </Button>
       </div>
     </div>
