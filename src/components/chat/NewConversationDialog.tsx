@@ -35,7 +35,11 @@ export const NewConversationDialog = ({
   };
 
   const checkReachability = async () => {
-    if (!xmtpClient || !isValidAddress(walletAddress)) {
+    if (!xmtpClient) {
+      toast.error("XMTP client not connected");
+      return;
+    }
+    if (!isValidAddress(walletAddress)) {
       toast.error("Please enter a valid Ethereum address");
       return;
     }
