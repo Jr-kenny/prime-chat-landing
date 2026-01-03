@@ -1,9 +1,9 @@
 import { motion } from "framer-motion";
 import { useAccount, useDisconnect, useWalletClient } from "wagmi";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useEffect, useState, useCallback } from "react";
 import { 
-  Moon, Sun, Send, Search, Settings, Plus, 
+  Send, Search, Settings, Plus, 
   MoreVertical, Smile, Paperclip,
   ArrowLeft, Users, Shield, Loader2, Check, X
 } from "lucide-react";
@@ -15,6 +15,8 @@ import { Dm, Group, ConsentState } from "@xmtp/browser-sdk";
 import { toast } from "sonner";
 import { NewConversationDialog } from "@/components/chat/NewConversationDialog";
 import { ConsentTabs, type ConsentFilter } from "@/components/chat/ConsentTabs";
+import SettingsSheet from "@/components/chat/SettingsSheet";
+import ThemeToggle from "@/components/ThemeToggle";
 
 interface DisplayConversation {
   id: string;
@@ -42,9 +44,9 @@ const Chat = () => {
   const { data: walletClient } = useWalletClient();
   const navigate = useNavigate();
   
-  const [isDark, setIsDark] = useState(false);
   const [messageInput, setMessageInput] = useState("");
   const [showMobileChat, setShowMobileChat] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   
   // XMTP State
   const [xmtpClient, setXmtpClient] = useState<Client | null>(null);
@@ -181,14 +183,7 @@ const Chat = () => {
     loadMessages();
   }, [selectedConversation, xmtpClient]);
 
-  // Dark mode toggle
-  useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-  }, [isDark]);
+  // Removed isDark state - now using ThemeToggle component
 
   const handleSendMessage = async () => {
     if (!messageInput.trim() || !selectedConversation?.xmtpConversation || isSending) return;
@@ -283,12 +278,17 @@ const Chat = () => {
       {/* Sidebar Header */}
       <div className="p-4 border-b border-border">
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-xl font-bold text-foreground">Prime Chat</h1>
+          <Link to="/" className="text-xl font-bold text-foreground hover:opacity-80 transition-opacity">
+            Prime Chat
+          </Link>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => setIsDark(!isDark)}>
-              {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </Button>
-            <Button variant="ghost" size="icon" className="h-9 w-9">
+            <ThemeToggle className="h-9 w-9" />
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-9 w-9"
+              onClick={() => setShowSettings(true)}
+            >
               <Settings className="h-4 w-4" />
             </Button>
           </div>
@@ -589,6 +589,12 @@ const Chat = () => {
       onOpenChange={setShowNewConversation}
       xmtpClient={xmtpClient}
       onConversationCreated={loadConversations}
+    />
+    
+    {/* Settings Sheet */}
+    <SettingsSheet
+      open={showSettings}
+      onOpenChange={setShowSettings}
     />
     </>
   );
