@@ -1,4 +1,6 @@
 import { motion } from "framer-motion";
+import { Twitter } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 const SocialProof = () => {
   return (
@@ -9,11 +11,21 @@ const SocialProof = () => {
           whileInView={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
           viewport={{ once: true }}
-          className="text-center"
+          className="text-center space-y-4"
         >
           <p className="text-sm text-muted-foreground uppercase tracking-widest">
             built on xmtp
           </p>
+          
+          <a 
+            href="https://x.com/Jrken_ny" 
+            target="_blank" 
+            rel="noopener noreferrer"
+          >
+            <Button variant="ghost" size="icon" className="h-10 w-10 mt-2">
+              <Twitter className="h-5 w-5" />
+            </Button>
+          </a>
         </motion.div>
       </div>
     </section>
