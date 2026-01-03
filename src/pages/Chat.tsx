@@ -69,15 +69,21 @@ const Chat = () => {
     }
   }, [isConnected, navigate]);
 
-  // Reset XMTP client when wallet address changes
+  // Track previous address to detect wallet switches
+  const [prevAddress, setPrevAddress] = useState<string | undefined>(undefined);
+
+  // Reset XMTP client when wallet address changes (not on initial mount)
   useEffect(() => {
-    // Clear XMTP state when wallet changes
-    setXmtpClient(null);
-    setConversations([]);
-    setSelectedConversation(null);
-    setMessages([]);
-    setIsInitializing(false);
-  }, [address]);
+    if (prevAddress && address && prevAddress !== address) {
+      // Wallet actually switched - clear XMTP state
+      setXmtpClient(null);
+      setConversations([]);
+      setSelectedConversation(null);
+      setMessages([]);
+      setIsInitializing(false);
+    }
+    setPrevAddress(address);
+  }, [address, prevAddress]);
 
   // Initialize XMTP client
   useEffect(() => {
