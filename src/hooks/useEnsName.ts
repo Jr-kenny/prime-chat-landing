@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { createPublicClient, http, isAddress } from "viem";
 import { mainnet } from "viem/chains";
-import { normalize } from "viem/ens";
 
 // Create a public client for ENS resolution on mainnet
 const mainnetClient = createPublicClient({
@@ -11,6 +10,7 @@ const mainnetClient = createPublicClient({
 
 // Cache for resolved names
 const nameCache = new Map<string, string | null>();
+const avatarCache = new Map<string, string | null>();
 
 export function useEnsName(address: string | undefined) {
   const [ensName, setEnsName] = useState<string | null>(null);
@@ -22,9 +22,11 @@ export function useEnsName(address: string | undefined) {
       return;
     }
 
+    const lowerAddress = address.toLowerCase();
+    
     // Check cache first
-    if (nameCache.has(address.toLowerCase())) {
-      setEnsName(nameCache.get(address.toLowerCase()) ?? null);
+    if (nameCache.has(lowerAddress)) {
+      setEnsName(nameCache.get(lowerAddress) ?? null);
       return;
     }
 
@@ -34,11 +36,11 @@ export function useEnsName(address: string | undefined) {
         const name = await mainnetClient.getEnsName({
           address: address as `0x${string}`,
         });
-        nameCache.set(address.toLowerCase(), name);
+        nameCache.set(lowerAddress, name);
         setEnsName(name);
       } catch (error) {
         console.error("Failed to resolve ENS name:", error);
-        nameCache.set(address.toLowerCase(), null);
+        nameCache.set(lowerAddress, null);
         setEnsName(null);
       } finally {
         setIsLoading(false);
@@ -61,15 +63,23 @@ export function useEnsAvatar(ensName: string | null) {
       return;
     }
 
+    // Check cache first
+    if (avatarCache.has(ensName)) {
+      setAvatar(avatarCache.get(ensName) ?? null);
+      return;
+    }
+
     const resolveAvatar = async () => {
       setIsLoading(true);
       try {
         const avatarUrl = await mainnetClient.getEnsAvatar({
-          name: normalize(ensName),
+          name: ensName,
         });
+        avatarCache.set(ensName, avatarUrl);
         setAvatar(avatarUrl);
       } catch (error) {
         console.error("Failed to resolve ENS avatar:", error);
+        avatarCache.set(ensName, null);
         setAvatar(null);
       } finally {
         setIsLoading(false);
