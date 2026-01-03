@@ -1,9 +1,9 @@
 import { motion } from "framer-motion";
 import { useAccount, useDisconnect, useWalletClient } from "wagmi";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useEffect, useState, useCallback } from "react";
 import { 
-  Send, Search, Settings, Plus, 
+  Moon, Sun, Send, Search, Settings, Plus, 
   MoreVertical, Smile, Paperclip,
   ArrowLeft, Users, Shield, Loader2, Check, X
 } from "lucide-react";
@@ -15,8 +15,6 @@ import { Dm, Group, ConsentState } from "@xmtp/browser-sdk";
 import { toast } from "sonner";
 import { NewConversationDialog } from "@/components/chat/NewConversationDialog";
 import { ConsentTabs, type ConsentFilter } from "@/components/chat/ConsentTabs";
-import SettingsSheet from "@/components/chat/SettingsSheet";
-import ThemeToggle from "@/components/ThemeToggle";
 
 interface DisplayConversation {
   id: string;
@@ -44,9 +42,9 @@ const Chat = () => {
   const { data: walletClient } = useWalletClient();
   const navigate = useNavigate();
   
+  const [isDark, setIsDark] = useState(false);
   const [messageInput, setMessageInput] = useState("");
   const [showMobileChat, setShowMobileChat] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
   
   // XMTP State
   const [xmtpClient, setXmtpClient] = useState<Client | null>(null);
@@ -69,21 +67,15 @@ const Chat = () => {
     }
   }, [isConnected, navigate]);
 
-  // Track previous address to detect wallet switches
-  const [prevAddress, setPrevAddress] = useState<string | undefined>(undefined);
-
-  // Reset XMTP client when wallet address changes (not on initial mount)
+  // Reset XMTP client when wallet address changes
   useEffect(() => {
-    if (prevAddress && address && prevAddress !== address) {
-      // Wallet actually switched - clear XMTP state
-      setXmtpClient(null);
-      setConversations([]);
-      setSelectedConversation(null);
-      setMessages([]);
-      setIsInitializing(false);
-    }
-    setPrevAddress(address);
-  }, [address, prevAddress]);
+    // Clear XMTP state when wallet changes
+    setXmtpClient(null);
+    setConversations([]);
+    setSelectedConversation(null);
+    setMessages([]);
+    setIsInitializing(false);
+  }, [address]);
 
   // Initialize XMTP client
   useEffect(() => {
@@ -189,7 +181,14 @@ const Chat = () => {
     loadMessages();
   }, [selectedConversation, xmtpClient]);
 
-  // Removed isDark state - now using ThemeToggle component
+  // Dark mode toggle
+  useEffect(() => {
+    if (isDark) {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  }, [isDark]);
 
   const handleSendMessage = async () => {
     if (!messageInput.trim() || !selectedConversation?.xmtpConversation || isSending) return;
@@ -284,17 +283,12 @@ const Chat = () => {
       {/* Sidebar Header */}
       <div className="p-4 border-b border-border">
         <div className="flex items-center justify-between mb-4">
-          <Link to="/" className="text-xl font-bold text-foreground hover:opacity-80 transition-opacity">
-            Prime Chat
-          </Link>
+          <h1 className="text-xl font-bold text-foreground">Prime Chat</h1>
           <div className="flex items-center gap-2">
-            <ThemeToggle className="h-9 w-9" />
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="h-9 w-9"
-              onClick={() => setShowSettings(true)}
-            >
+            <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => setIsDark(!isDark)}>
+              {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </Button>
+            <Button variant="ghost" size="icon" className="h-9 w-9">
               <Settings className="h-4 w-4" />
             </Button>
           </div>
@@ -595,12 +589,6 @@ const Chat = () => {
       onOpenChange={setShowNewConversation}
       xmtpClient={xmtpClient}
       onConversationCreated={loadConversations}
-    />
-    
-    {/* Settings Sheet */}
-    <SettingsSheet
-      open={showSettings}
-      onOpenChange={setShowSettings}
     />
     </>
   );

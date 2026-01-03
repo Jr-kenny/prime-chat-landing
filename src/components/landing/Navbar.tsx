@@ -1,7 +1,6 @@
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import ThemeToggle from "@/components/ThemeToggle";
 
 const Navbar = () => {
   return (
@@ -37,17 +36,14 @@ const Navbar = () => {
           </Link>
         </div>
 
-        <div className="flex items-center gap-2">
-          <ThemeToggle className="h-9 w-9" />
-          <Link to="/welcome">
-            <Button
-              size="sm"
-              className="rounded-full px-6 font-medium"
-            >
-              enter
-            </Button>
-          </Link>
-        </div>
+        <Link to="/welcome">
+          <Button
+            size="sm"
+            className="rounded-full px-6 font-medium"
+          >
+            enter
+          </Button>
+        </Link>
       </div>
     </motion.nav>
   );
