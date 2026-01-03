@@ -5,6 +5,7 @@ import { useAccount } from "wagmi";
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { MessageCircle, Shield, Zap } from "lucide-react";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 const Welcome = () => {
   const { isConnected } = useAccount();
@@ -18,6 +19,11 @@ const Welcome = () => {
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6">
+      {/* Theme Toggle - Top Right */}
+      <div className="absolute top-4 right-4 z-20">
+        <ThemeToggle />
+      </div>
+
       {/* Background Pattern */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-accent/5 rounded-full blur-3xl" />
