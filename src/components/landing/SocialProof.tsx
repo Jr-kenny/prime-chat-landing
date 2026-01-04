@@ -26,6 +26,10 @@ const SocialProof = () => {
               <Twitter className="h-5 w-5" />
             </Button>
           </a>
+          
+          <p className="text-xs text-muted-foreground pt-2">
+            a product of prime isles
+          </p>
         </motion.div>
       </div>
     </section>
