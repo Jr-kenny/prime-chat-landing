@@ -17,7 +17,6 @@ import { NewConversationDialog } from "@/components/chat/NewConversationDialog";
 import { ConsentTabs, type ConsentFilter } from "@/components/chat/ConsentTabs";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SettingsSheet } from "@/components/chat/SettingsSheet";
-import logo from "@/assets/logo.png";
 
 interface DisplayConversation {
   id: string;
@@ -277,8 +276,8 @@ const Chat = () => {
       {/* Sidebar Header */}
       <div className="p-4 border-b border-border">
         <div className="flex items-center justify-between mb-4">
-          <Link to="/" className="hover:opacity-80 transition-opacity">
-            <img src={logo} alt="Prime Isles" className="h-8" />
+          <Link to="/" className="text-xl font-bold text-foreground hover:opacity-80 transition-opacity">
+            Prime Chat
           </Link>
           <div className="flex items-center gap-2">
             <ThemeToggle />
