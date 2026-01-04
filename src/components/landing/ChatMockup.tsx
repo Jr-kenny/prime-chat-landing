@@ -46,7 +46,7 @@ const ChatMockup = () => {
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.8, delay: 0.5 }}
-      className="relative mx-auto max-w-[320px]"
+      className="relative mx-auto w-full max-w-[320px]"
     >
       {/* Phone Frame */}
       <div
@@ -104,7 +104,7 @@ const ChatMockup = () => {
           </div>
 
           {/* Messages */}
-          <div className="h-[340px] px-4 py-4 space-y-4 overflow-hidden">
+          <div className="h-[280px] sm:h-[340px] px-4 py-4 space-y-4 overflow-hidden">
             {mockMessages.map((message) => (
               <div
                 key={message.id}

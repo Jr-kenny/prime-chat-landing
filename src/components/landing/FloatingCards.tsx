@@ -10,7 +10,6 @@ const FloatingCards = () => {
       description: "Your wallet is your identity",
       icon: Wallet,
       color: "bg-accent",
-      // Positioned ~20px left of the phone (card width 200px + 20px gap)
       position: "left-[-220px] top-[18%]",
       delay: 0.6,
     },
@@ -20,7 +19,6 @@ const FloatingCards = () => {
       description: "Chat like you're used to",
       icon: MessageSquare,
       color: "bg-accent-orange",
-      // Positioned ~20px right of the phone
       position: "left-[calc(100%_+_20px)] top-[18%]",
       delay: 0.7,
     },
@@ -30,7 +28,6 @@ const FloatingCards = () => {
       description: "Auto-resolve web3 profiles",
       icon: Link2,
       color: "bg-secondary",
-      // Positioned ~20px left of the phone at lower half
       position: "left-[-220px] bottom-[14%] md:bottom-[16%]",
       delay: 0.8,
       hasAction: true,
@@ -41,7 +38,6 @@ const FloatingCards = () => {
       description: "Every message is encrypted",
       icon: Shield,
       color: "bg-accent-purple",
-      // Positioned ~20px right of the phone at lower half
       position: "left-[calc(100%_+_20px)] bottom-[14%] md:bottom-[16%]",
       delay: 0.9,
     },
@@ -49,14 +45,14 @@ const FloatingCards = () => {
 
   return (
     <>
+      {/* Desktop: Floating cards around phone */}
       {cards.map((card) => (
         <motion.div
           key={card.id}
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.5, delay: card.delay }}
-          // Ensure z-index is high enough to sit near/over the mockup edges if they overlap
-          className={`absolute ${card.position} hidden md:block z-40`}
+          className={`absolute ${card.position} hidden lg:block z-40`}
         >
           <motion.div
             animate={{ y: [0, -8, 0] }}
@@ -68,8 +64,8 @@ const FloatingCards = () => {
                 <card.icon className="w-5 h-5 text-foreground" />
               </div>
               <div>
-                <h4 className={`font-semibold text-sm text-foreground leading-normal`}>{card.title}</h4>
-                <p className={`text-sm text-foreground/70 mt-1 break-words`}>{card.description}</p>
+                <h4 className="font-semibold text-sm text-foreground leading-normal">{card.title}</h4>
+                <p className="text-sm text-foreground/70 mt-1 break-words">{card.description}</p>
                 {card.hasAction && (
                   <Button
                     variant="secondary"
@@ -84,6 +80,33 @@ const FloatingCards = () => {
           </motion.div>
         </motion.div>
       ))}
+
+      {/* Mobile: Cards in a horizontal scroll or grid below phone */}
+      <div className="lg:hidden mt-8 w-screen -ml-[50vw] left-1/2 relative px-4">
+        <div className="flex gap-3 overflow-x-auto pb-4 snap-x snap-mandatory scrollbar-hide">
+          {cards.map((card, index) => (
+            <motion.div
+              key={`mobile-${card.id}`}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, delay: 0.3 + index * 0.1 }}
+              className="snap-center shrink-0 first:ml-auto last:mr-auto"
+            >
+              <div className={`${card.color} rounded-xl p-3 w-[200px] shadow-lg border border-white/10`}>
+                <div className="flex items-start gap-2">
+                  <div className="p-1.5 bg-foreground/10 rounded-lg shrink-0">
+                    <card.icon className="w-4 h-4 text-foreground" />
+                  </div>
+                  <div className="min-w-0">
+                    <h4 className="font-semibold text-xs text-foreground leading-tight">{card.title}</h4>
+                    <p className="text-xs text-foreground/70 mt-0.5">{card.description}</p>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </div>
     </>
   );
 };
