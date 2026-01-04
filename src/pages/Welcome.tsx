@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { MessageCircle, Shield, Zap } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import Logo from "@/components/Logo";
 
 const Welcome = () => {
   const { isConnected } = useAccount();
@@ -44,7 +45,7 @@ const Welcome = () => {
           className="mb-8"
         >
           <Link to="/" className="inline-block">
-            <span className="text-3xl font-bold tracking-tight">prime chat</span>
+            <Logo size="lg" />
           </Link>
         </motion.div>
 

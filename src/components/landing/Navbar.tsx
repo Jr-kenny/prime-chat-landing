@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import Logo from "@/components/Logo";
 
 const Navbar = () => {
   return (
@@ -13,7 +14,7 @@ const Navbar = () => {
     >
       <div className="container mx-auto px-6 h-16 flex items-center justify-between">
         <Link to="/" className="flex items-center gap-2">
-          <span className="text-xl font-bold tracking-tight">prime chat</span>
+          <Logo size="sm" />
         </Link>
 
         <div className="hidden md:flex items-center gap-8">
