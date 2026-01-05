@@ -129,11 +129,8 @@ export const SettingsSheet = ({ open, onOpenChange, address }: SettingsSheetProp
               onClick={handleDisconnect}
             >
               <LogOut className="h-4 w-4" />
-              Disconnect Wallet
+              Disconnect
             </Button>
-            <p className="text-xs text-muted-foreground mt-2 text-center">
-              This will sign you out of the app and XMTP
-            </p>
           </div>
         </div>
       </SheetContent>
