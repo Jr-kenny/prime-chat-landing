@@ -106,8 +106,9 @@ const Chat = () => {
     if (!xmtpClient) return;
     
     try {
-      // Sync with network
-      await xmtpClient.conversations.sync();
+      // Use syncAll to fetch all conversations AND their messages
+      // This is more comprehensive than sync() which only checks for new conversation invites
+      await xmtpClient.conversations.syncAll();
       
       // List all conversations
       const convList = await xmtpClient.conversations.list();
