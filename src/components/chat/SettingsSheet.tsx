@@ -1,10 +1,7 @@
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useState, useEffect } from "react";
 import { User, Wallet } from "lucide-react";
-import { toast } from "sonner";
 
 interface SettingsSheetProps {
   open: boolean;
@@ -13,20 +10,9 @@ interface SettingsSheetProps {
 }
 
 export const SettingsSheet = ({ open, onOpenChange, address }: SettingsSheetProps) => {
-  const [displayName, setDisplayName] = useState("");
   const [ensName, setEnsName] = useState<string | null>(null);
   const [baseName, setBaseName] = useState<string | null>(null);
   const [isLoadingNames, setIsLoadingNames] = useState(false);
-
-  // Load saved display name on mount
-  useEffect(() => {
-    if (address) {
-      const savedName = localStorage.getItem(`primechat_displayname_${address}`);
-      if (savedName) {
-        setDisplayName(savedName);
-      }
-    }
-  }, [address]);
 
   // Fetch ENS/Basename when sheet opens
   useEffect(() => {
@@ -70,18 +56,6 @@ export const SettingsSheet = ({ open, onOpenChange, address }: SettingsSheetProp
     fetchNames();
   }, [address, open]);
 
-  const handleSave = () => {
-    if (address && displayName.trim()) {
-      localStorage.setItem(`primechat_displayname_${address}`, displayName.trim());
-      toast.success("Display name saved");
-    }
-    onOpenChange(false);
-  };
-
-  const selectName = (name: string) => {
-    setDisplayName(name);
-  };
-
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent>
@@ -104,11 +78,11 @@ export const SettingsSheet = ({ open, onOpenChange, address }: SettingsSheetProp
             </p>
           </div>
 
-          {/* Available Names */}
+          {/* Linked Names */}
           <div className="space-y-3">
             <Label className="text-sm text-muted-foreground flex items-center gap-2">
               <User className="h-4 w-4" />
-              Available Names
+              Linked Names
             </Label>
             
             {isLoadingNames ? (
@@ -116,26 +90,18 @@ export const SettingsSheet = ({ open, onOpenChange, address }: SettingsSheetProp
             ) : (
               <div className="space-y-2">
                 {ensName && (
-                  <Button
-                    variant="outline"
-                    className="w-full justify-start"
-                    onClick={() => selectName(ensName)}
-                  >
+                  <div className="p-3 bg-secondary/50 rounded-lg">
                     <span className="text-xs text-muted-foreground mr-2">ENS:</span>
-                    {ensName}
-                  </Button>
+                    <span className="font-medium">{ensName}</span>
+                  </div>
                 )}
                 {baseName && (
-                  <Button
-                    variant="outline"
-                    className="w-full justify-start"
-                    onClick={() => selectName(baseName)}
-                  >
+                  <div className="p-3 bg-secondary/50 rounded-lg">
                     <span className="text-xs text-muted-foreground mr-2">Basename:</span>
-                    {baseName}
-                  </Button>
+                    <span className="font-medium">{baseName}</span>
+                  </div>
                 )}
-                {!ensName && !baseName && !isLoadingNames && (
+                {!ensName && !baseName && (
                   <p className="text-sm text-muted-foreground">
                     No ENS or Basename found for this wallet
                   </p>
@@ -143,25 +109,6 @@ export const SettingsSheet = ({ open, onOpenChange, address }: SettingsSheetProp
               </div>
             )}
           </div>
-
-          {/* Custom Display Name */}
-          <div className="space-y-2">
-            <Label htmlFor="displayName">Display Name</Label>
-            <Input
-              id="displayName"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="Enter your display name"
-            />
-            <p className="text-xs text-muted-foreground">
-              This will be shown to other users in conversations
-            </p>
-          </div>
-
-          {/* Save Button */}
-          <Button onClick={handleSave} className="w-full">
-            Save Changes
-          </Button>
         </div>
       </SheetContent>
     </Sheet>

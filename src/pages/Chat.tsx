@@ -267,7 +267,6 @@ const Chat = () => {
   // Count conversations by consent state
   const consentCounts = {
     allowed: conversations.filter(c => c.consentState === "allowed").length,
-    unknown: conversations.filter(c => c.consentState === "unknown").length,
     denied: conversations.filter(c => c.consentState === "denied").length,
   };
 
@@ -336,7 +335,6 @@ const Chat = () => {
             <div className="text-center py-8 text-muted-foreground">
               <p className="text-sm">
                 {consentFilter === "allowed" && "No conversations yet"}
-                {consentFilter === "unknown" && "No message requests"}
                 {consentFilter === "denied" && "No blocked contacts"}
               </p>
             </div>
@@ -379,33 +377,7 @@ const Chat = () => {
                   </div>
                 </div>
                 
-                {/* Consent action buttons for unknown/denied */}
-                {conv.consentState === "unknown" && (
-                  <div className="flex gap-1">
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-8 w-8 text-green-500 hover:bg-green-500/10"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleConsentAction(conv, "allow");
-                      }}
-                    >
-                      <Check className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-8 w-8 text-destructive hover:bg-destructive/10"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleConsentAction(conv, "deny");
-                      }}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                )}
+                {/* Consent action button for blocked contacts */}
                 {conv.consentState === "denied" && (
                   <Button
                     size="sm"
