@@ -1,7 +1,10 @@
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
-import { User, Wallet } from "lucide-react";
+import { User, Wallet, LogOut } from "lucide-react";
+import { useDisconnect } from "wagmi";
+import { useNavigate } from "react-router-dom";
 
 interface SettingsSheetProps {
   open: boolean;
@@ -13,6 +16,14 @@ export const SettingsSheet = ({ open, onOpenChange, address }: SettingsSheetProp
   const [ensName, setEnsName] = useState<string | null>(null);
   const [baseName, setBaseName] = useState<string | null>(null);
   const [isLoadingNames, setIsLoadingNames] = useState(false);
+  const { disconnect } = useDisconnect();
+  const navigate = useNavigate();
+
+  const handleDisconnect = () => {
+    disconnect();
+    onOpenChange(false);
+    navigate("/welcome");
+  };
 
   // Fetch ENS/Basename when sheet opens
   useEffect(() => {
@@ -108,6 +119,21 @@ export const SettingsSheet = ({ open, onOpenChange, address }: SettingsSheetProp
                 )}
               </div>
             )}
+          </div>
+
+          {/* Disconnect Button */}
+          <div className="pt-4 border-t border-border">
+            <Button 
+              variant="destructive" 
+              className="w-full gap-2"
+              onClick={handleDisconnect}
+            >
+              <LogOut className="h-4 w-4" />
+              Disconnect Wallet
+            </Button>
+            <p className="text-xs text-muted-foreground mt-2 text-center">
+              This will sign you out of the app and XMTP
+            </p>
           </div>
         </div>
       </SheetContent>
