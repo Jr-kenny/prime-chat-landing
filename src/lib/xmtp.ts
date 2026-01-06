@@ -29,6 +29,9 @@ export const initializeXmtpClient = async (walletClient: WalletClient) => {
 
   const client = await Client.create(signer, {
     env: 'dev', // Use 'production' for mainnet
+    // History sync is enabled by default with the correct URL based on env
+    // historySyncUrl is automatically set to https://message-history.dev.ephemera.network/
+    appVersion: 'PrimeChat/1.0',
   });
 
   return client;

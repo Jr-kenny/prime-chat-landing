@@ -1,10 +1,14 @@
-import { http, createConfig } from 'wagmi';
+import { http } from 'wagmi';
 import { mainnet, polygon, arbitrum, optimism, base } from 'wagmi/chains';
 import { getDefaultConfig } from '@rainbow-me/rainbowkit';
 
+// WalletConnect Project ID - get yours at https://cloud.walletconnect.com
+// This is a publishable ID (not secret), required for WalletConnect v2
+const WALLETCONNECT_PROJECT_ID = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || 'c4f79cc821944d9680842e34466bfb';
+
 export const config = getDefaultConfig({
   appName: 'Prime Chat',
-  projectId: 'prime-chat-demo', // For WalletConnect - in production, get from cloud.walletconnect.com
+  projectId: WALLETCONNECT_PROJECT_ID,
   chains: [mainnet, polygon, arbitrum, optimism, base],
   transports: {
     [mainnet.id]: http(),
