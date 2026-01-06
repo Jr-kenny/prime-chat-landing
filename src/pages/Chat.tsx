@@ -152,19 +152,67 @@ const Chat = () => {
     }
   }, [xmtpClient]);
 
+  // Initial load and setup streams for new conversations/messages
   useEffect(() => {
-    loadConversations();
-  }, [loadConversations]);
+    if (!xmtpClient) return;
+    
+    let conversationStream: { end: () => Promise<{ value: undefined; done: boolean }> } | null = null;
+    let allMessagesStream: { end: () => Promise<{ value: undefined; done: boolean }> } | null = null;
+    let isActive = true;
 
-  // Load messages for selected conversation
+    const setupStreams = async () => {
+      try {
+        // Stream new conversations
+        conversationStream = await xmtpClient.conversations.stream({
+          onValue: async () => {
+            if (!isActive) return;
+            // Reload conversations when a new one arrives
+            await loadConversations();
+          },
+        });
+
+        // Stream all messages to update conversation list and catch new messages
+        allMessagesStream = await xmtpClient.conversations.streamAllMessages({
+          onValue: async () => {
+            if (!isActive) return;
+            // Reload conversations to update last message
+            await loadConversations();
+          },
+        });
+      } catch (error) {
+        console.error("Failed to setup global streams:", error);
+      }
+    };
+
+    loadConversations();
+    setupStreams();
+
+    return () => {
+      isActive = false;
+      if (conversationStream) {
+        conversationStream.end();
+      }
+      if (allMessagesStream) {
+        allMessagesStream.end();
+      }
+    };
+  }, [xmtpClient, loadConversations]);
+
+  // Load messages for selected conversation and set up streaming
   useEffect(() => {
+    if (!selectedConversation?.xmtpConversation || !xmtpClient) return;
+    
+    let streamProxy: { end: () => Promise<{ value: undefined; done: boolean }> } | null = null;
+    let isActive = true;
+    
     const loadMessages = async () => {
-      if (!selectedConversation?.xmtpConversation) return;
-      
       setIsLoadingMessages(true);
       try {
+        // Sync the conversation to get latest messages
         await selectedConversation.xmtpConversation.sync();
         const xmtpMessages = await selectedConversation.xmtpConversation.messages();
+        
+        if (!isActive) return;
         
         const displayMessages: DisplayMessage[] = xmtpMessages.map((msg) => ({
           id: msg.id,
@@ -182,7 +230,47 @@ const Chat = () => {
       }
     };
 
+    const setupStream = async () => {
+      try {
+        // Stream new messages in real-time using options.onValue callback
+        streamProxy = await selectedConversation.xmtpConversation.stream({
+          onValue: (message) => {
+            if (!isActive) return;
+            
+            const newMessage: DisplayMessage = {
+              id: message.id,
+              content: message.content?.toString() || '',
+              time: new Date(Number(message.sentAtNs) / 1000000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              isOwn: message.senderInboxId === xmtpClient?.inboxId,
+              status: "delivered" as const,
+            };
+            
+            // Add message if not already present (avoid duplicates from optimistic updates)
+            setMessages(prev => {
+              if (prev.some(m => m.id === message.id)) return prev;
+              // Remove any temp messages that match the content (optimistic update replacement)
+              const filtered = prev.filter(m => !m.id.startsWith('temp-') || m.content !== newMessage.content);
+              return [...filtered, newMessage];
+            });
+          },
+          onError: (error) => {
+            console.error("Stream error:", error);
+          },
+        });
+      } catch (error) {
+        console.error("Failed to setup message stream:", error);
+      }
+    };
+
     loadMessages();
+    setupStream();
+
+    return () => {
+      isActive = false;
+      if (streamProxy) {
+        streamProxy.end();
+      }
+    };
   }, [selectedConversation, xmtpClient]);
 
   const handleSendMessage = async () => {
@@ -268,6 +356,7 @@ const Chat = () => {
   // Count conversations by consent state
   const consentCounts = {
     allowed: conversations.filter(c => c.consentState === "allowed").length,
+    unknown: conversations.filter(c => c.consentState === "unknown").length,
     denied: conversations.filter(c => c.consentState === "denied").length,
   };
 
@@ -336,6 +425,7 @@ const Chat = () => {
             <div className="text-center py-8 text-muted-foreground">
               <p className="text-sm">
                 {consentFilter === "allowed" && "No conversations yet"}
+                {consentFilter === "unknown" && "No message requests"}
                 {consentFilter === "denied" && "No blocked contacts"}
               </p>
             </div>
@@ -349,7 +439,7 @@ const Chat = () => {
                   selectedConversation?.id === conv.id 
                     ? "bg-accent/20 border border-accent/30" 
                     : "hover:bg-secondary/50"
-                }`}
+                } ${conv.consentState === "unknown" ? "border-l-2 border-l-destructive" : ""}`}
               >
                 <div 
                   className="flex-1 flex items-center gap-3"
@@ -361,6 +451,10 @@ const Chat = () => {
                     }`}>
                       {conv.avatar}
                     </div>
+                    {/* Red notification dot for unknown contacts */}
+                    {conv.consentState === "unknown" && (
+                      <span className="absolute -top-1 -right-1 w-3 h-3 bg-destructive rounded-full animate-pulse" />
+                    )}
                   </div>
                   <div className="flex-1 min-w-0 text-left">
                     <div className="flex items-center justify-between">
@@ -378,7 +472,35 @@ const Chat = () => {
                   </div>
                 </div>
                 
-                {/* Consent action button for blocked contacts */}
+                {/* Consent action buttons for unknown contacts (requests) */}
+                {conv.consentState === "unknown" && (
+                  <div className="flex gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 text-green-500 hover:text-green-600 hover:bg-green-500/10"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleConsentAction(conv, "allow");
+                      }}
+                    >
+                      <Check className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleConsentAction(conv, "deny");
+                      }}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+                
+                {/* Unblock button for blocked contacts */}
                 {conv.consentState === "denied" && (
                   <Button
                     size="sm"
