@@ -29,7 +29,6 @@ export const NewConversationDialog = ({
   const [isChecking, setIsChecking] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [canMessage, setCanMessage] = useState<boolean | null>(null);
-  const [resolvedId, setResolvedId] = useState<string | null>(null); // <-- added
 
   const isValidAddress = (address: string) => {
     return /^0x[a-fA-F0-9]{40}$/.test(address);
@@ -47,21 +46,20 @@ export const NewConversationDialog = ({
 
     setIsChecking(true);
     setCanMessage(null);
-    setResolvedId(null);
 
     try {
+      // Check if the wallet can receive XMTP messages
       const identifier = {
         identifier: walletAddress.toLowerCase(),
         identifierKind: "Ethereum" as const,
       };
       const canMessageResult = await xmtpClient.canMessage([identifier]);
 
-      // ✅ use the actual key returned (Inbox ID or normalized address)
+      // ✅ Use the actual key returned from the result map
       const [resolvedKey] = canMessageResult.keys();
       const isReachable = canMessageResult.get(resolvedKey) ?? false;
 
       setCanMessage(isReachable);
-      setResolvedId(resolvedKey);
 
       if (isReachable) {
         toast.success("Wallet is reachable on XMTP!");
@@ -78,13 +76,12 @@ export const NewConversationDialog = ({
   };
 
   const startConversation = async () => {
-    if (!xmtpClient || !canMessage || !resolvedId) return;
+    if (!xmtpClient || !canMessage) return;
 
     setIsCreating(true);
     try {
-      // ✅ use resolvedId instead of raw walletAddress
-      const conversation = await xmtpClient.conversations.newDm(resolvedId);
-      console.log("Conversation ID:", conversation.context?.conversationId);
+      // Keep your original flow: start DM with the address
+      const conversation = await xmtpClient.conversations.newDm(walletAddress);
 
       toast.success("Conversation started!");
       onConversationCreated();
@@ -100,7 +97,6 @@ export const NewConversationDialog = ({
   const handleClose = () => {
     setWalletAddress("");
     setCanMessage(null);
-    setResolvedId(null);
     onOpenChange(false);
   };
 
@@ -127,7 +123,6 @@ export const NewConversationDialog = ({
                 onChange={(e) => {
                   setWalletAddress(e.target.value);
                   setCanMessage(null);
-                  setResolvedId(null);
                 }}
                 className="flex-1"
               />
