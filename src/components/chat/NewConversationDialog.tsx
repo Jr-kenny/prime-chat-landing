@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { type Client } from "@xmtp/browser-sdk";
+import { type Client, type Identifier } from "@xmtp/browser-sdk";
 import { toast } from "sonner";
 
 interface NewConversationDialogProps {
@@ -48,14 +48,28 @@ export const NewConversationDialog = ({
     setCanMessage(null);
 
     try {
+      console.log("Checking reachability for address:", walletAddress);
+      
+      // Create identifier array as per official XMTP docs
+      const identifiers: Identifier[] = [
+        {
+          identifier: walletAddress, // Use the address as-is, XMTP handles normalization
+          identifierKind: "Ethereum" as const,
+        },
+      ];
+      
       // Check if the wallet can receive XMTP messages
-      // canMessage expects an array of Identifier objects
-      const identifier = {
-        identifier: walletAddress.toLowerCase(),
-        identifierKind: "Ethereum" as const,
-      };
-      const canMessageResult = await xmtpClient.canMessage([identifier]);
-      const isReachable = canMessageResult.get(walletAddress.toLowerCase()) || false;
+      const canMessageResult = await xmtpClient.canMessage(identifiers);
+      
+      // The response is a Map where key is the identifier string
+      const isReachable = canMessageResult.get(walletAddress) || false;
+      
+      console.log("Reachability check result:", {
+        address: walletAddress,
+        isReachable,
+        mapKeys: Array.from(canMessageResult.keys()),
+      });
+      
       setCanMessage(isReachable);
 
       if (isReachable) {
@@ -77,11 +91,28 @@ export const NewConversationDialog = ({
 
     setIsCreating(true);
     try {
-      // Find or create a DM conversation with the peer
+      console.log("Creating DM conversation with:", walletAddress);
+      
+      // Create a DM conversation using the wallet address directly
+      // This is the official XMTP V3 API - no need to create identifier separately
       const conversation = await xmtpClient.conversations.newDm(walletAddress);
       
+      console.log("✅ Conversation created:", {
+        id: conversation.id,
+        address: walletAddress,
+      });
+      
+      // CRITICAL: Sync the conversation before closing the dialog
+      // This ensures the conversation is ready and will receive messages
+      console.log("Syncing new DM conversation...");
+      await conversation.sync();
+      console.log("✅ DM conversation synced successfully");
+      
       toast.success("Conversation started!");
-      onConversationCreated();
+      
+      // Reload conversations to show the new one
+      await onConversationCreated();
+      
       handleClose();
     } catch (error) {
       console.error("Failed to create conversation:", error);
@@ -117,10 +148,10 @@ export const NewConversationDialog = ({
               <Input
                 placeholder="0x..."
                 value={walletAddress}
-              onChange={(e) => {
-                setWalletAddress(e.target.value);
-                setCanMessage(null);
-              }}
+                onChange={(e) => {
+                  setWalletAddress(e.target.value);
+                  setCanMessage(null);
+                }}
                 className="flex-1"
               />
               <Button
