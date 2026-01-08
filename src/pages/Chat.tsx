@@ -106,12 +106,17 @@ const Chat = () => {
     if (!xmtpClient) return;
     
     try {
-      // Use syncAll to fetch all conversations AND their messages
-      // This is more comprehensive than sync() which only checks for new conversation invites
-      await xmtpClient.conversations.syncAll();
-      
-      // List all conversations
-      const convList = await xmtpClient.conversations.list();
+      // Sync + list across consent states so "Requests" (unknown) actually appear
+      const consentStates: ConsentState[] = [
+        ConsentState.Allowed,
+        ConsentState.Unknown,
+        ConsentState.Denied,
+      ];
+
+      await xmtpClient.conversations.syncAll(consentStates);
+
+      // List all conversations (Inbox + Requests + Blocked)
+      const convList = await xmtpClient.conversations.list({ consentStates });
       
       const displayConvs: DisplayConversation[] = await Promise.all(
         convList.map(async (conv, index) => {
@@ -171,8 +176,9 @@ const Chat = () => {
           },
         });
 
-        // Stream all messages to update conversation list and catch new messages
+        // Stream all messages (include Unknown so incoming requests trigger UI)
         allMessagesStream = await xmtpClient.conversations.streamAllMessages({
+          consentStates: [ConsentState.Allowed, ConsentState.Unknown],
           onValue: async () => {
             if (!isActive) return;
             // Reload conversations to update last message
