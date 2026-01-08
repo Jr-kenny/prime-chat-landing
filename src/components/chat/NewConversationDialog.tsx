@@ -77,27 +77,11 @@ export const NewConversationDialog = ({
 
     setIsCreating(true);
     try {
-      console.log("Creating conversation with:", walletAddress);
-      
       // Find or create a DM conversation with the peer
       const conversation = await xmtpClient.conversations.newDm(walletAddress);
       
-      console.log("Conversation created:", {
-        id: conversation.id,
-        peerInboxId: conversation instanceof (xmtpClient.conversations.newDm as any).prototype ? 'Dm' : 'Group',
-      });
-      
-      // CRITICAL FIX: Sync the conversation before closing the dialog
-      // This ensures the conversation is ready to receive messages
-      console.log("Syncing new conversation...");
-      await conversation.sync();
-      console.log("✅ Conversation synced successfully");
-      
       toast.success("Conversation started!");
-      
-      // Call the callback to reload conversations
-      await onConversationCreated();
-      
+      onConversationCreated();
       handleClose();
     } catch (error) {
       console.error("Failed to create conversation:", error);
@@ -133,10 +117,10 @@ export const NewConversationDialog = ({
               <Input
                 placeholder="0x..."
                 value={walletAddress}
-                onChange={(e) => {
-                  setWalletAddress(e.target.value);
-                  setCanMessage(null);
-                }}
+              onChange={(e) => {
+                setWalletAddress(e.target.value);
+                setCanMessage(null);
+              }}
                 className="flex-1"
               />
               <Button
