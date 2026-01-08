@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Client, type Identifier } from "@xmtp/browser-sdk";
+import { type Client } from "@xmtp/browser-sdk";
 import { toast } from "sonner";
 
 interface NewConversationDialogProps {
@@ -29,7 +29,7 @@ export const NewConversationDialog = ({
   const [isChecking, setIsChecking] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [canMessage, setCanMessage] = useState<boolean | null>(null);
-  const [resolvedId, setResolvedId] = useState<string | null>(null);
+  const [resolvedId, setResolvedId] = useState<string | null>(null); // <-- added
 
   const isValidAddress = (address: string) => {
     return /^0x[a-fA-F0-9]{40}$/.test(address);
@@ -50,16 +50,18 @@ export const NewConversationDialog = ({
     setResolvedId(null);
 
     try {
-      const identifiers: Identifier[] = [
-        { identifier: walletAddress, identifierKind: "Ethereum" as const },
-      ];
+      const identifier = {
+        identifier: walletAddress.toLowerCase(),
+        identifierKind: "Ethereum" as const,
+      };
+      const canMessageResult = await xmtpClient.canMessage([identifier]);
 
-      const canMessageResult = await Client.canMessage(identifiers);
-      const [inboxId] = canMessageResult.keys();
-      const isReachable = canMessageResult.get(inboxId) ?? false;
+      // ✅ use the actual key returned (Inbox ID or normalized address)
+      const [resolvedKey] = canMessageResult.keys();
+      const isReachable = canMessageResult.get(resolvedKey) ?? false;
 
       setCanMessage(isReachable);
-      setResolvedId(inboxId);
+      setResolvedId(resolvedKey);
 
       if (isReachable) {
         toast.success("Wallet is reachable on XMTP!");
@@ -80,7 +82,9 @@ export const NewConversationDialog = ({
 
     setIsCreating(true);
     try {
+      // ✅ use resolvedId instead of raw walletAddress
       const conversation = await xmtpClient.conversations.newDm(resolvedId);
+      console.log("Conversation ID:", conversation.context?.conversationId);
 
       toast.success("Conversation started!");
       onConversationCreated();
