@@ -157,53 +157,6 @@ const Chat = () => {
     }
   }, [xmtpClient]);
 
-  // Initial load and setup streams for new conversations/messages
-  useEffect(() => {
-    if (!xmtpClient) return;
-    
-    let conversationStream: { end: () => Promise<{ value: undefined; done: boolean }> } | null = null;
-    let allMessagesStream: { end: () => Promise<{ value: undefined; done: boolean }> } | null = null;
-    let isActive = true;
-
-    const setupStreams = async () => {
-      try {
-        // Stream new conversations
-        conversationStream = await xmtpClient.conversations.stream({
-          onValue: async () => {
-            if (!isActive) return;
-            // Reload conversations when a new one arrives
-            await loadConversations();
-          },
-        });
-
-        // Stream all messages (include Unknown so incoming requests trigger UI)
-        allMessagesStream = await xmtpClient.conversations.streamAllMessages({
-          consentStates: [ConsentState.Allowed, ConsentState.Unknown],
-          onValue: async () => {
-            if (!isActive) return;
-            // Reload conversations to update last message
-            await loadConversations();
-          },
-        });
-      } catch (error) {
-        console.error("Failed to setup global streams:", error);
-      }
-    };
-
-    loadConversations();
-    setupStreams();
-
-    return () => {
-      isActive = false;
-      if (conversationStream) {
-        conversationStream.end();
-      }
-      if (allMessagesStream) {
-        allMessagesStream.end();
-      }
-    };
-  }, [xmtpClient, loadConversations]);
-
   // Load messages for selected conversation and set up streaming
   useEffect(() => {
     if (!selectedConversation?.xmtpConversation || !xmtpClient) return;
@@ -239,9 +192,12 @@ const Chat = () => {
     const setupStream = async () => {
       try {
         // Stream new messages in real-time using options.onValue callback
+        // THIS IS THE KEY FIX: conversation-specific stream appends new messages directly
         streamProxy = await selectedConversation.xmtpConversation.stream({
           onValue: (message) => {
             if (!isActive) return;
+            
+            console.log("New message received:", message.id, message.content);
             
             const newMessage: DisplayMessage = {
               id: message.id,
@@ -278,6 +234,56 @@ const Chat = () => {
       }
     };
   }, [selectedConversation, xmtpClient]);
+
+  // Initial load and setup streams for new conversations/messages
+  useEffect(() => {
+    if (!xmtpClient) return;
+    
+    let conversationStream: { end: () => Promise<{ value: undefined; done: boolean }> } | null = null;
+    let allMessagesStream: { end: () => Promise<{ value: undefined; done: boolean }> } | null = null;
+    let isActive = true;
+
+    const setupStreams = async () => {
+      try {
+        // Stream new conversations
+        conversationStream = await xmtpClient.conversations.stream({
+          onValue: async () => {
+            if (!isActive) return;
+            console.log("New conversation detected");
+            // Reload conversations when a new one arrives
+            await loadConversations();
+          },
+        });
+
+        // Stream all messages (include Unknown so incoming requests trigger UI)
+        // THIS NOW JUST UPDATES SIDEBAR - conversation-specific stream handles message display
+        allMessagesStream = await xmtpClient.conversations.streamAllMessages({
+          consentStates: [ConsentState.Allowed, ConsentState.Unknown],
+          onValue: async () => {
+            if (!isActive) return;
+            console.log("Message activity detected, updating conversations list");
+            // Reload conversations to update last message in sidebar
+            await loadConversations();
+          },
+        });
+      } catch (error) {
+        console.error("Failed to setup global streams:", error);
+      }
+    };
+
+    loadConversations();
+    setupStreams();
+
+    return () => {
+      isActive = false;
+      if (conversationStream) {
+        conversationStream.end();
+      }
+      if (allMessagesStream) {
+        allMessagesStream.end();
+      }
+    };
+  }, [xmtpClient, loadConversations]);
 
   const handleSendMessage = async () => {
     if (!messageInput.trim() || !selectedConversation?.xmtpConversation || isSending) return;
