@@ -10,12 +10,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Client, type Identifier } from "@xmtp/browser-sdk";
+import { type Client as ClientType } from "@xmtp/browser-sdk";
 import { toast } from "sonner";
 
 interface NewConversationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  xmtpClient: Client | null;
+  xmtpClient: ClientType | null;
   onConversationCreated: () => void;
 }
 
@@ -29,7 +30,6 @@ export const NewConversationDialog = ({
   const [isChecking, setIsChecking] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [canMessage, setCanMessage] = useState<boolean | null>(null);
-  const [peerInboxId, setPeerInboxId] = useState<string>("");
 
   const isValidAddress = (address: string) => {
     return /^0x[a-fA-F0-9]{40}$/.test(address);
@@ -47,61 +47,24 @@ export const NewConversationDialog = ({
 
     setIsChecking(true);
     setCanMessage(null);
-    setPeerInboxId("");
 
     try {
-      console.log("Checking reachability for address:", walletAddress);
-      
-      // According to official docs: canMessage is a static method on Client
+      // OFFICIAL XMTP DOCS - Check if wallet can receive messages
       const identifiers: Identifier[] = [
-        {
-          identifier: walletAddress,
-          identifierKind: "Ethereum" as const,
-        },
+        { identifier: walletAddress, identifierKind: "Ethereum" }
       ];
       
-      // This returns a Map of string (identifier) => boolean (is reachable)
+      // response is a Map of string (identifier) => boolean (is reachable)
       const response = await Client.canMessage(identifiers);
       
-      console.log("canMessage response:", {
-        address: walletAddress,
-        response,
-        mapSize: response.size,
-        mapEntries: Array.from(response.entries()),
-      });
-      
-      // The map key is the identifier string we passed
       const isReachable = response.get(walletAddress) || false;
-      
-      console.log("Is reachable:", isReachable);
-      
+      setCanMessage(isReachable);
+
       if (isReachable) {
-        // Now get the inbox ID of this wallet
-        // We need to query the network to get their inbox ID
-        try {
-          // Use getDmByIdentifier to get the peer's information
-          const dmIdentifier: Identifier = {
-            identifier: walletAddress,
-            identifierKind: "Ethereum" as const,
-          };
-          
-          // This will return a DM object if the peer exists, and we can extract their inboxId
-          const dm = await xmtpClient.conversations.getDmByIdentifier(dmIdentifier);
-          const peerId = await dm.peerInboxId();
-          
-          console.log("Peer inbox ID:", peerId);
-          setPeerInboxId(peerId);
-        } catch (error) {
-          console.error("Error getting peer inbox ID:", error);
-          // Still mark as reachable, we'll handle inboxId in startConversation
-        }
-        
         toast.success("Wallet is reachable on XMTP!");
       } else {
         toast.error("This wallet hasn't joined XMTP yet");
       }
-      
-      setCanMessage(isReachable);
     } catch (error) {
       console.error("Failed to check reachability:", error);
       toast.error("Failed to check wallet reachability");
@@ -116,28 +79,14 @@ export const NewConversationDialog = ({
 
     setIsCreating(true);
     try {
-      console.log("Creating DM with address:", walletAddress);
-      
-      // According to official docs, newDm takes an inboxId
-      // But if we pass the wallet address, it should work as well
-      // Let's try with the wallet address first
+      // OFFICIAL XMTP DOCS - Create a new DM
       const conversation = await xmtpClient.conversations.newDm(walletAddress);
       
-      console.log("✅ DM created:", {
-        id: conversation.id,
-        address: walletAddress,
-      });
-      
-      // CRITICAL: Sync the conversation
-      console.log("Syncing new DM...");
+      // Sync the conversation to ensure it's ready
       await conversation.sync();
-      console.log("✅ DM synced successfully");
       
       toast.success("Conversation started!");
-      
-      // Reload conversations
-      await onConversationCreated();
-      
+      onConversationCreated();
       handleClose();
     } catch (error) {
       console.error("Failed to create conversation:", error);
@@ -150,7 +99,6 @@ export const NewConversationDialog = ({
   const handleClose = () => {
     setWalletAddress("");
     setCanMessage(null);
-    setPeerInboxId("");
     onOpenChange(false);
   };
 
@@ -177,7 +125,6 @@ export const NewConversationDialog = ({
                 onChange={(e) => {
                   setWalletAddress(e.target.value);
                   setCanMessage(null);
-                  setPeerInboxId("");
                 }}
                 className="flex-1"
               />
