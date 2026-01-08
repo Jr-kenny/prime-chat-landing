@@ -29,6 +29,7 @@ export const NewConversationDialog = ({
   const [isChecking, setIsChecking] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [canMessage, setCanMessage] = useState<boolean | null>(null);
+  const [resolvedInboxId, setResolvedInboxId] = useState<string | null>(null);
 
   const isValidAddress = (address: string) => {
     return /^0x[a-fA-F0-9]{40}$/.test(address);
@@ -46,21 +47,27 @@ export const NewConversationDialog = ({
 
     setIsChecking(true);
     setCanMessage(null);
+    setResolvedInboxId(null);
 
     try {
-      // Normalize once and reuse
-      const normalizedAddress = walletAddress.toLowerCase();
-      const identifier = {
-        identifier: normalizedAddress,
+      // Step 1: Build identifier with raw address
+      const identifiers = [{
+        identifier: walletAddress,
         identifierKind: "Ethereum" as const,
-      };
+      }];
 
-      const canMessageResult = await xmtpClient.canMessage([identifier]);
-      const isReachable = canMessageResult.get(identifier.identifier) ?? false;
+      // Step 2: Ask XMTP if this identity is reachable
+      const canMessageResult = await xmtpClient.canMessage(identifiers);
+
+      // Step 3: Extract the Inbox ID (XMTP dev site uses this)
+      const inboxId = [...canMessageResult.keys()][0];
+      const isReachable = canMessageResult.get(inboxId) ?? false;
+
       setCanMessage(isReachable);
 
       if (isReachable) {
         toast.success("Wallet is reachable on XMTP!");
+        setResolvedInboxId(inboxId); // save Inbox ID for later
       } else {
         toast.error("This wallet hasn't joined XMTP yet");
       }
@@ -74,12 +81,12 @@ export const NewConversationDialog = ({
   };
 
   const startConversation = async () => {
-    if (!xmtpClient || !canMessage) return;
+    if (!xmtpClient || !canMessage || !resolvedInboxId) return;
 
     setIsCreating(true);
     try {
-      // Find or create a DM conversation with the peer
-      const conversation = await xmtpClient.conversations.newDm(walletAddress);
+      // Use Inbox ID instead of raw address
+      const conversation = await xmtpClient.conversations.newDm(resolvedInboxId);
 
       toast.success("Conversation started!");
       onConversationCreated();
@@ -95,6 +102,7 @@ export const NewConversationDialog = ({
   const handleClose = () => {
     setWalletAddress("");
     setCanMessage(null);
+    setResolvedInboxId(null);
     onOpenChange(false);
   };
 
@@ -121,6 +129,7 @@ export const NewConversationDialog = ({
                 onChange={(e) => {
                   setWalletAddress(e.target.value);
                   setCanMessage(null);
+                  setResolvedInboxId(null);
                 }}
                 className="flex-1"
               />
