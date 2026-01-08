@@ -48,14 +48,12 @@ export const NewConversationDialog = ({
     setCanMessage(null);
 
     try {
-      // Check if the wallet can receive XMTP messages
       const identifier = {
         identifier: walletAddress.toLowerCase(),
         identifierKind: "Ethereum" as const,
       };
       const canMessageResult = await xmtpClient.canMessage([identifier]);
 
-      // ✅ Use the actual key returned from the result map
       const [resolvedKey] = canMessageResult.keys();
       const isReachable = canMessageResult.get(resolvedKey) ?? false;
 
@@ -80,8 +78,15 @@ export const NewConversationDialog = ({
 
     setIsCreating(true);
     try {
-      // Keep your original flow: start DM with the address
-      const conversation = await xmtpClient.conversations.newDm(walletAddress);
+      // ✅ Resolve wallet address to Inbox ID
+      const peerInboxId = await xmtpClient.inboxIdFromIdentity({
+        identifier: walletAddress,
+        identifierKind: "Ethereum",
+      });
+
+      // ✅ Use findOrCreateDm to ensure the DM group exists
+      const conversation = await xmtpClient.conversations.findOrCreateDm(peerInboxId);
+      console.log("Conversation ID:", conversation.context?.conversationId);
 
       toast.success("Conversation started!");
       onConversationCreated();
