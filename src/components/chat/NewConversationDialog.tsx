@@ -49,16 +49,13 @@ export const NewConversationDialog = ({
 
     try {
       // Check if the wallet can receive XMTP messages
+      // canMessage expects an array of Identifier objects
       const identifier = {
         identifier: walletAddress.toLowerCase(),
         identifierKind: "Ethereum" as const,
       };
       const canMessageResult = await xmtpClient.canMessage([identifier]);
-
-      // ✅ Use the actual key returned from the result map
-      const [resolvedKey] = canMessageResult.keys();
-      const isReachable = canMessageResult.get(resolvedKey) ?? false;
-
+      const isReachable = canMessageResult.get(walletAddress.toLowerCase()) || false;
       setCanMessage(isReachable);
 
       if (isReachable) {
@@ -80,9 +77,9 @@ export const NewConversationDialog = ({
 
     setIsCreating(true);
     try {
-      // Keep your original flow: start DM with the address
+      // Find or create a DM conversation with the peer
       const conversation = await xmtpClient.conversations.newDm(walletAddress);
-
+      
       toast.success("Conversation started!");
       onConversationCreated();
       handleClose();
@@ -120,10 +117,10 @@ export const NewConversationDialog = ({
               <Input
                 placeholder="0x..."
                 value={walletAddress}
-                onChange={(e) => {
-                  setWalletAddress(e.target.value);
-                  setCanMessage(null);
-                }}
+              onChange={(e) => {
+                setWalletAddress(e.target.value);
+                setCanMessage(null);
+              }}
                 className="flex-1"
               />
               <Button
