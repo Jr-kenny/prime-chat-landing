@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import { useAccount, useDisconnect, useWalletClient } from "wagmi";
 import { useNavigate, Link } from "react-router-dom";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { 
   Send, Search, Settings, Plus, 
   MoreVertical, Smile, Paperclip,
@@ -62,11 +62,6 @@ const Chat = () => {
   const [consentFilter, setConsentFilter] = useState<ConsentFilter>("allowed");
   const [searchQuery, setSearchQuery] = useState("");
   const [showSettings, setShowSettings] = useState(false);
-  
-  // Stream abort controllers for cleanup
-  const conversationStreamAbortRef = useRef<AbortController | null>(null);
-  const messagesStreamAbortRef = useRef<AbortController | null>(null);
-  const selectedConvStreamAbortRef = useRef<AbortController | null>(null);
 
   // Redirect if not connected
   useEffect(() => {
@@ -162,10 +157,58 @@ const Chat = () => {
     }
   }, [xmtpClient]);
 
+  // Initial load and setup streams for new conversations/messages
+  useEffect(() => {
+    if (!xmtpClient) return;
+    
+    let conversationStream: { end: () => Promise<{ value: undefined; done: boolean }> } | null = null;
+    let allMessagesStream: { end: () => Promise<{ value: undefined; done: boolean }> } | null = null;
+    let isActive = true;
+
+    const setupStreams = async () => {
+      try {
+        // Stream new conversations
+        conversationStream = await xmtpClient.conversations.stream({
+          onValue: async () => {
+            if (!isActive) return;
+            // Reload conversations when a new one arrives
+            await loadConversations();
+          },
+        });
+
+        // Stream all messages (include Unknown so incoming requests trigger UI)
+        allMessagesStream = await xmtpClient.conversations.streamAllMessages({
+          consentStates: [ConsentState.Allowed, ConsentState.Unknown],
+          onValue: async () => {
+            if (!isActive) return;
+            // Reload conversations to update last message
+            await loadConversations();
+          },
+        });
+      } catch (error) {
+        console.error("Failed to setup global streams:", error);
+      }
+    };
+
+    loadConversations();
+    setupStreams();
+
+    return () => {
+      isActive = false;
+      if (conversationStream) {
+        conversationStream.end();
+      }
+      if (allMessagesStream) {
+        allMessagesStream.end();
+      }
+    };
+  }, [xmtpClient, loadConversations]);
+
   // Load messages for selected conversation and set up streaming
   useEffect(() => {
     if (!selectedConversation?.xmtpConversation || !xmtpClient) return;
     
+    let streamProxy: { end: () => Promise<{ value: undefined; done: boolean }> } | null = null;
     let isActive = true;
     
     const loadMessages = async () => {
@@ -195,54 +238,33 @@ const Chat = () => {
 
     const setupStream = async () => {
       try {
-        console.log("🎯 Setting up message stream for conversation:", selectedConversation.id);
-        
-        // Abort previous stream if exists
-        if (selectedConvStreamAbortRef.current) {
-          selectedConvStreamAbortRef.current.abort();
-        }
-        
-        selectedConvStreamAbortRef.current = new AbortController();
-        const abortSignal = selectedConvStreamAbortRef.current.signal;
-        
-        // Use for-await loop as per official XMTP docs
-        const stream = await selectedConversation.xmtpConversation.messages();
-        
-        // Start listening for new messages using official API
-        for await (const message of selectedConversation.xmtpConversation.stream()) {
-          if (!isActive || abortSignal.aborted) break;
-          
-          console.log("🔔 NEW MESSAGE RECEIVED:", {
-            id: message.id,
-            content: message.content,
-            senderInboxId: message.senderInboxId,
-            currentUserInboxId: xmtpClient?.inboxId,
-            isOwn: message.senderInboxId === xmtpClient?.inboxId,
-          });
-          
-          const newMessage: DisplayMessage = {
-            id: message.id,
-            content: message.content?.toString() || '',
-            time: new Date(Number(message.sentAtNs) / 1000000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            isOwn: message.senderInboxId === xmtpClient?.inboxId,
-            status: "delivered" as const,
-          };
-          
-          // Add message if not already present
-          setMessages(prev => {
-            if (prev.some(m => m.id === message.id)) {
-              console.log("Message already exists, skipping:", message.id);
-              return prev;
-            }
-            const filtered = prev.filter(m => !m.id.startsWith('temp-') || m.content !== newMessage.content);
-            console.log("✅ Adding new message. Previous:", prev.length, "New:", filtered.length + 1);
-            return [...filtered, newMessage];
-          });
-        }
+        // Stream new messages in real-time using options.onValue callback
+        streamProxy = await selectedConversation.xmtpConversation.stream({
+          onValue: (message) => {
+            if (!isActive) return;
+            
+            const newMessage: DisplayMessage = {
+              id: message.id,
+              content: message.content?.toString() || '',
+              time: new Date(Number(message.sentAtNs) / 1000000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              isOwn: message.senderInboxId === xmtpClient?.inboxId,
+              status: "delivered" as const,
+            };
+            
+            // Add message if not already present (avoid duplicates from optimistic updates)
+            setMessages(prev => {
+              if (prev.some(m => m.id === message.id)) return prev;
+              // Remove any temp messages that match the content (optimistic update replacement)
+              const filtered = prev.filter(m => !m.id.startsWith('temp-') || m.content !== newMessage.content);
+              return [...filtered, newMessage];
+            });
+          },
+          onError: (error) => {
+            console.error("Stream error:", error);
+          },
+        });
       } catch (error) {
-        if ((error as Error).name !== 'AbortError') {
-          console.error("❌ Failed to setup message stream:", error);
-        }
+        console.error("Failed to setup message stream:", error);
       }
     };
 
@@ -251,85 +273,11 @@ const Chat = () => {
 
     return () => {
       isActive = false;
-      if (selectedConvStreamAbortRef.current) {
-        selectedConvStreamAbortRef.current.abort();
+      if (streamProxy) {
+        streamProxy.end();
       }
     };
   }, [selectedConversation, xmtpClient]);
-
-  // Initial load and setup streams for new conversations/messages
-  useEffect(() => {
-    if (!xmtpClient) return;
-    
-    let isActive = true;
-
-    const setupStreams = async () => {
-      try {
-        // Stream new conversations
-        (async () => {
-          try {
-            if (conversationStreamAbortRef.current) {
-              conversationStreamAbortRef.current.abort();
-            }
-            
-            conversationStreamAbortRef.current = new AbortController();
-            const abortSignal = conversationStreamAbortRef.current.signal;
-            
-            console.log("📡 Starting conversation stream...");
-            for await (const conversation of xmtpClient.conversations.stream()) {
-              if (!isActive || abortSignal.aborted) break;
-              console.log("New conversation detected:", conversation.id);
-              if (isActive) await loadConversations();
-            }
-          } catch (error) {
-            if ((error as Error).name !== 'AbortError') {
-              console.error("Conversation stream error:", error);
-            }
-          }
-        })();
-
-        // Stream all messages for sidebar updates
-        (async () => {
-          try {
-            if (messagesStreamAbortRef.current) {
-              messagesStreamAbortRef.current.abort();
-            }
-            
-            messagesStreamAbortRef.current = new AbortController();
-            const abortSignal = messagesStreamAbortRef.current.signal;
-            
-            console.log("📡 Starting global messages stream...");
-            for await (const message of xmtpClient.conversations.streamAllMessages({
-              consentStates: [ConsentState.Allowed, ConsentState.Unknown],
-            })) {
-              if (!isActive || abortSignal.aborted) break;
-              console.log("Message activity detected, updating conversations list");
-              if (isActive) await loadConversations();
-            }
-          } catch (error) {
-            if ((error as Error).name !== 'AbortError') {
-              console.error("Messages stream error:", error);
-            }
-          }
-        })();
-      } catch (error) {
-        console.error("Failed to setup global streams:", error);
-      }
-    };
-
-    loadConversations();
-    setupStreams();
-
-    return () => {
-      isActive = false;
-      if (conversationStreamAbortRef.current) {
-        conversationStreamAbortRef.current.abort();
-      }
-      if (messagesStreamAbortRef.current) {
-        messagesStreamAbortRef.current.abort();
-      }
-    };
-  }, [xmtpClient, loadConversations]);
 
   const handleSendMessage = async () => {
     if (!messageInput.trim() || !selectedConversation?.xmtpConversation || isSending) return;
@@ -344,15 +292,17 @@ const Chat = () => {
       content,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       isOwn: true,
-      status: "sent"
+      status: "sent" // Will change to "delivered" once published
     };
     setMessages(prev => [...prev, optimisticMessage]);
     
     try {
       // Step 1: Write message to local database (sendOptimistic)
+      // This ensures the message appears in local queries immediately
       selectedConversation.xmtpConversation.sendOptimistic(content);
       
       // Step 2: Publish message to XMTP network (publishMessages)
+      // This actually sends the message so recipients can receive it
       await selectedConversation.xmtpConversation.publishMessages();
       
       // Sync to get the actual message from network and replace optimistic one
@@ -369,6 +319,7 @@ const Chat = () => {
     } catch (error) {
       console.error("Failed to send message:", error);
       toast.error("Failed to send message");
+      // Remove optimistic message on error
       setMessages(prev => prev.filter(m => m.id !== optimisticMessage.id));
       setMessageInput(content);
     } finally {
@@ -513,6 +464,7 @@ const Chat = () => {
                     }`}>
                       {conv.avatar}
                     </div>
+                    {/* Red notification dot for unknown contacts */}
                     {conv.consentState === "unknown" && (
                       <span className="absolute -top-1 -right-1 w-3 h-3 bg-destructive rounded-full animate-pulse" />
                     )}
@@ -533,6 +485,7 @@ const Chat = () => {
                   </div>
                 </div>
                 
+                {/* Consent action buttons for unknown contacts (requests) */}
                 {conv.consentState === "unknown" && (
                   <div className="flex gap-1">
                     <Button
@@ -560,6 +513,7 @@ const Chat = () => {
                   </div>
                 )}
                 
+                {/* Unblock button for blocked contacts */}
                 {conv.consentState === "denied" && (
                   <Button
                     size="sm"
