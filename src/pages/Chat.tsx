@@ -280,18 +280,25 @@ const Chat = () => {
     setMessageInput("");
     setIsSending(true);
     
-    // Optimistic update
+    // Optimistic update - show message immediately with "sending" status
     const optimisticMessage: DisplayMessage = {
       id: `temp-${Date.now()}`,
       content,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       isOwn: true,
-      status: "sent"
+      status: "sent" // Will change to "delivered" once published
     };
     setMessages(prev => [...prev, optimisticMessage]);
     
     try {
-      await selectedConversation.xmtpConversation.send(content);
+      // Step 1: Write message to local database (sendOptimistic)
+      // This ensures the message appears in local queries immediately
+      selectedConversation.xmtpConversation.sendOptimistic(content);
+      
+      // Step 2: Publish message to XMTP network (publishMessages)
+      // This actually sends the message so recipients can receive it
+      await selectedConversation.xmtpConversation.publishMessages();
+      
       // Sync to get the actual message from network and replace optimistic one
       await selectedConversation.xmtpConversation.sync();
       const xmtpMessages = await selectedConversation.xmtpConversation.messages();
