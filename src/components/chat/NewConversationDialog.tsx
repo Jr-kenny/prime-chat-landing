@@ -78,15 +78,24 @@ export const NewConversationDialog = ({
 
     setIsCreating(true);
     try {
-      // ✅ Resolve wallet address to Inbox ID
-      const peerInboxId = await xmtpClient.inboxIdFromIdentity({
-        identifier: walletAddress,
+      // Step A: Resolve wallet address to Inbox ID
+      const peerInboxId = await xmtpClient.findInboxIdByIdentifier({
+        identifier: walletAddress.toLowerCase(),
         identifierKind: "Ethereum",
       });
 
-      // ✅ Use findOrCreateDm to ensure the DM group exists
-      const conversation = await xmtpClient.conversations.findOrCreateDm(peerInboxId);
-      console.log("Conversation ID:", conversation.context?.conversationId);
+      if (!peerInboxId) {
+        toast.error("Could not resolve inbox ID for this wallet");
+        return;
+      }
+
+      // Step B: Check if DM already exists, otherwise create new one
+      const existingDm = xmtpClient.conversations.getDmByInboxId(peerInboxId);
+      const conversation = await (existingDm 
+        ? Promise.resolve(existingDm) 
+        : xmtpClient.conversations.newDm(peerInboxId));
+      
+      console.log("Conversation ID:", conversation.id);
 
       toast.success("Conversation started!");
       onConversationCreated();
