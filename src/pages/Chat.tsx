@@ -339,6 +339,60 @@ const Chat = () => {
     setShowMobileChat(true);
   };
 
+  // Handle new conversation created - reload and select it
+  const handleConversationCreated = useCallback(async (conversationId: string) => {
+    if (!xmtpClient) return;
+    
+    try {
+      // Reload conversations to include the new one
+      await loadConversations();
+      
+      // Find and select the newly created conversation
+      // We need to re-fetch conversations to get the new one
+      const consentStates: ConsentState[] = [
+        ConsentState.Allowed,
+        ConsentState.Unknown,
+        ConsentState.Denied,
+      ];
+      await xmtpClient.conversations.syncAll(consentStates);
+      const convList = await xmtpClient.conversations.list({ consentStates });
+      
+      const newConv = convList.find(c => c.id === conversationId);
+      if (newConv) {
+        let peerAddress = 'Unknown';
+        if (newConv instanceof Dm) {
+          peerAddress = await newConv.peerInboxId() || 'Unknown';
+        } else if (newConv instanceof Group) {
+          peerAddress = newConv.name || 'Group';
+        }
+        
+        const consent = await newConv.consentState();
+        let consentState: "allowed" | "unknown" | "denied" = "unknown";
+        if (consent === ConsentState.Allowed) consentState = "allowed";
+        else if (consent === ConsentState.Denied) consentState = "denied";
+        
+        const displayConv: DisplayConversation = {
+          id: newConv.id,
+          peerAddress,
+          name: `${peerAddress.slice(0, 6)}...${peerAddress.slice(-4)}`,
+          lastMessage: 'No messages yet',
+          time: '',
+          unread: 0,
+          avatar: peerAddress.slice(2, 4).toUpperCase(),
+          xmtpConversation: newConv,
+          consentState,
+        };
+        
+        // Switch to "allowed" tab and select conversation
+        setConsentFilter("allowed");
+        setSelectedConversation(displayConv);
+        setShowMobileChat(true);
+      }
+    } catch (error) {
+      console.error("Failed to select new conversation:", error);
+    }
+  }, [xmtpClient, loadConversations]);
+
   // Allow or deny a conversation (consent management)
   const handleConsentAction = async (conv: DisplayConversation, action: "allow" | "deny") => {
     try {
@@ -695,7 +749,7 @@ const Chat = () => {
       open={showNewConversation}
       onOpenChange={setShowNewConversation}
       xmtpClient={xmtpClient}
-      onConversationCreated={loadConversations}
+      onConversationCreated={handleConversationCreated}
     />
     
     {/* Settings Sheet */}

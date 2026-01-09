@@ -16,7 +16,7 @@ interface NewConversationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   xmtpClient: Client | null;
-  onConversationCreated: () => void;
+  onConversationCreated: (conversationId: string) => void;
 }
 
 export const NewConversationDialog = ({
@@ -89,17 +89,24 @@ export const NewConversationDialog = ({
         return;
       }
 
-      // Step B: Check if DM already exists, otherwise create new one
-      const existingDm = xmtpClient.conversations.getDmByInboxId(peerInboxId);
-      const conversation = await (existingDm 
-        ? Promise.resolve(existingDm) 
-        : xmtpClient.conversations.newDm(peerInboxId));
-      
-      console.log("Conversation ID:", conversation.id);
+      // Step B: Sync conversations first to ensure we have the latest state
+      await xmtpClient.conversations.sync();
 
-      toast.success("Conversation started!");
-      onConversationCreated();
+      // Step C: Check if DM already exists, otherwise create new one
+      const existingDm = xmtpClient.conversations.getDmByInboxId(peerInboxId);
+      let conversation;
+      
+      if (existingDm) {
+        conversation = existingDm;
+        console.log("Reusing existing DM:", conversation.id);
+      } else {
+        conversation = await xmtpClient.conversations.newDm(peerInboxId);
+        console.log("Created new DM:", conversation.id);
+      }
+
+      toast.success(existingDm ? "Opening conversation..." : "Conversation created!");
       handleClose();
+      onConversationCreated(conversation.id);
     } catch (error) {
       console.error("Failed to create conversation:", error);
       toast.error("Failed to start conversation");
