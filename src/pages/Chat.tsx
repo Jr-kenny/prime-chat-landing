@@ -223,9 +223,11 @@ const Chat = () => {
           onValue: async (message) => {
             if (!isActive) return;
             
-            // Increment unread count for conversations not currently selected
+            // Only increment unread count for messages from OTHER parties, not our own
+            const isOwnMessage = message.senderInboxId === xmtpClient.inboxId;
             const convId = message.conversationId;
-            if (!selectedConversation || selectedConversation.id !== convId) {
+            
+            if (!isOwnMessage && (!selectedConversation || selectedConversation.id !== convId)) {
               setUnreadCounts(prev => ({
                 ...prev,
                 [convId]: (prev[convId] || 0) + 1
