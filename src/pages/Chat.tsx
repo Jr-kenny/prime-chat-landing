@@ -1,11 +1,11 @@
 import { motion } from "framer-motion";
 import { useAccount, useDisconnect, useWalletClient } from "wagmi";
 import { useNavigate, Link } from "react-router-dom";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { 
   Send, Search, Settings, Plus, 
   MoreVertical, Smile, Paperclip,
-  ArrowLeft, Users, Shield, Loader2, Check, X
+  ArrowLeft, Users, Shield, Loader2, Check, X, ChevronDown
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,7 @@ interface DisplayConversation {
   avatar: string;
   xmtpConversation: Dm | Group;
   consentState: "allowed" | "unknown" | "denied";
+  lastMessageTimestamp: number; // For sorting
 }
 
 interface DisplayMessage {
@@ -37,6 +38,7 @@ interface DisplayMessage {
   time: string;
   isOwn: boolean;
   status?: "sent" | "delivered" | "read";
+  timestamp: number; // For tracking
 }
 
 const Chat = () => {
@@ -63,6 +65,37 @@ const Chat = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [showSettings, setShowSettings] = useState(false);
 
+  // Auto-scroll and unread tracking
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const [isNearBottom, setIsNearBottom] = useState(true);
+  const [hasNewMessages, setHasNewMessages] = useState(false);
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+
+  // Scroll to bottom helper
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    messagesEndRef.current?.scrollIntoView({ behavior });
+    setHasNewMessages(false);
+    // Mark current conversation as read
+    if (selectedConversation) {
+      setUnreadCounts(prev => ({ ...prev, [selectedConversation.id]: 0 }));
+    }
+  }, [selectedConversation]);
+
+  // Check if user is near bottom of scroll
+  const handleScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    const target = event.currentTarget;
+    const isNear = target.scrollHeight - target.scrollTop - target.clientHeight < 100;
+    setIsNearBottom(isNear);
+    if (isNear) {
+      setHasNewMessages(false);
+      // Mark as read when scrolled to bottom
+      if (selectedConversation) {
+        setUnreadCounts(prev => ({ ...prev, [selectedConversation.id]: 0 }));
+      }
+    }
+  }, [selectedConversation]);
+
   // Redirect if not connected
   useEffect(() => {
     if (!isConnected) {
@@ -78,6 +111,7 @@ const Chat = () => {
     setSelectedConversation(null);
     setMessages([]);
     setIsInitializing(false);
+    setUnreadCounts({});
   }, [address]);
 
   // Initialize XMTP client
@@ -128,8 +162,11 @@ const Chat = () => {
             peerAddress = conv.name || `Group ${index + 1}`;
           }
           
-          const messages = await conv.messages({ limit: 1n });
-          const lastMsg = messages[0];
+          // Get the LAST message (most recent) by using limit and checking order
+          const messagesResult = await conv.messages({ limit: 10n });
+          // Messages come in chronological order, so get the last one
+          const lastMsg = messagesResult.length > 0 ? messagesResult[messagesResult.length - 1] : null;
+          const lastMessageTimestamp = lastMsg ? Number(lastMsg.sentAtNs) / 1000000 : 0;
           
           // Get consent state for this conversation
           const consent = await conv.consentState();
@@ -142,20 +179,24 @@ const Chat = () => {
             peerAddress,
             name: `${peerAddress.slice(0, 6)}...${peerAddress.slice(-4)}`,
             lastMessage: lastMsg?.content?.toString() || 'No messages yet',
-            time: lastMsg ? new Date(Number(lastMsg.sentAtNs) / 1000000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
-            unread: 0,
+            time: lastMsg ? new Date(lastMessageTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+            unread: unreadCounts[conv.id] || 0,
             avatar: peerAddress.slice(2, 4).toUpperCase(),
             xmtpConversation: conv,
             consentState,
+            lastMessageTimestamp,
           };
         })
       );
+      
+      // Sort by most recent message first
+      displayConvs.sort((a, b) => b.lastMessageTimestamp - a.lastMessageTimestamp);
       
       setConversations(displayConvs);
     } catch (error) {
       console.error("Failed to load conversations:", error);
     }
-  }, [xmtpClient]);
+  }, [xmtpClient, unreadCounts]);
 
   // Initial load and setup streams for new conversations/messages
   useEffect(() => {
@@ -179,8 +220,18 @@ const Chat = () => {
         // Stream all messages (include Unknown so incoming requests trigger UI)
         allMessagesStream = await xmtpClient.conversations.streamAllMessages({
           consentStates: [ConsentState.Allowed, ConsentState.Unknown],
-          onValue: async () => {
+          onValue: async (message) => {
             if (!isActive) return;
+            
+            // Increment unread count for conversations not currently selected
+            const convId = message.conversationId;
+            if (!selectedConversation || selectedConversation.id !== convId) {
+              setUnreadCounts(prev => ({
+                ...prev,
+                [convId]: (prev[convId] || 0) + 1
+              }));
+            }
+            
             // Reload conversations to update last message
             await loadConversations();
           },
@@ -202,7 +253,7 @@ const Chat = () => {
         allMessagesStream.end();
       }
     };
-  }, [xmtpClient, loadConversations]);
+  }, [xmtpClient, loadConversations, selectedConversation]);
 
   // Load messages for selected conversation and set up streaming
   useEffect(() => {
@@ -226,9 +277,14 @@ const Chat = () => {
           time: new Date(Number(msg.sentAtNs) / 1000000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           isOwn: msg.senderInboxId === xmtpClient?.inboxId,
           status: "delivered" as const,
+          timestamp: Number(msg.sentAtNs) / 1000000,
         }));
         
         setMessages(displayMessages);
+        
+        // Mark as read and scroll to bottom after loading
+        setUnreadCounts(prev => ({ ...prev, [selectedConversation.id]: 0 }));
+        setTimeout(() => scrollToBottom("auto"), 100);
       } catch (error) {
         console.error("Failed to load messages:", error);
       } finally {
@@ -249,6 +305,7 @@ const Chat = () => {
               time: new Date(Number(message.sentAtNs) / 1000000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
               isOwn: message.senderInboxId === xmtpClient?.inboxId,
               status: "delivered" as const,
+              timestamp: Number(message.sentAtNs) / 1000000,
             };
             
             // Add message if not already present (avoid duplicates from optimistic updates)
@@ -258,6 +315,13 @@ const Chat = () => {
               const filtered = prev.filter(m => !m.id.startsWith('temp-') || m.content !== newMessage.content);
               return [...filtered, newMessage];
             });
+            
+            // If user is near bottom, auto-scroll. Otherwise show indicator
+            if (isNearBottom) {
+              setTimeout(() => scrollToBottom(), 50);
+            } else {
+              setHasNewMessages(true);
+            }
           },
           onError: (error) => {
             console.error("Stream error:", error);
@@ -277,7 +341,7 @@ const Chat = () => {
         streamProxy.end();
       }
     };
-  }, [selectedConversation, xmtpClient]);
+  }, [selectedConversation, xmtpClient, scrollToBottom, isNearBottom]);
 
   const handleSendMessage = async () => {
     if (!messageInput.trim() || !selectedConversation?.xmtpConversation || isSending) return;
@@ -292,9 +356,13 @@ const Chat = () => {
       content,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       isOwn: true,
-      status: "sent" // Will change to "delivered" once published
+      status: "sent",
+      timestamp: Date.now(),
     };
     setMessages(prev => [...prev, optimisticMessage]);
+    
+    // Auto-scroll after sending
+    setTimeout(() => scrollToBottom(), 50);
     
     try {
       // Step 1: Write message to local database (sendOptimistic)
@@ -314,8 +382,12 @@ const Chat = () => {
         time: new Date(Number(msg.sentAtNs) / 1000000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         isOwn: msg.senderInboxId === xmtpClient?.inboxId,
         status: "delivered" as const,
+        timestamp: Number(msg.sentAtNs) / 1000000,
       }));
       setMessages(displayMessages);
+      
+      // Keep scrolled to bottom after sync
+      setTimeout(() => scrollToBottom(), 50);
     } catch (error) {
       console.error("Failed to send message:", error);
       toast.error("Failed to send message");
@@ -337,6 +409,9 @@ const Chat = () => {
   const selectConversation = (conv: DisplayConversation) => {
     setSelectedConversation(conv);
     setShowMobileChat(true);
+    // Reset unread count for this conversation
+    setUnreadCounts(prev => ({ ...prev, [conv.id]: 0 }));
+    setHasNewMessages(false);
   };
 
   // Handle new conversation created - reload and select it
@@ -381,10 +456,11 @@ const Chat = () => {
           avatar: peerAddress.slice(2, 4).toUpperCase(),
           xmtpConversation: newConv,
           consentState,
+          lastMessageTimestamp: 0,
         };
         
-        // Switch to "allowed" tab and select conversation
-        setConsentFilter("allowed");
+        // Switch to appropriate tab based on consent state and select conversation
+        setConsentFilter(consentState);
         setSelectedConversation(displayConv);
         setShowMobileChat(true);
       }
@@ -420,7 +496,7 @@ const Chat = () => {
     return matchesConsent && matchesSearch;
   });
 
-  // Count conversations by consent state
+  // Count conversations by consent state (including unread)
   const consentCounts = {
     allowed: conversations.filter(c => c.consentState === "allowed").length,
     unknown: conversations.filter(c => c.consentState === "unknown").length,
@@ -497,92 +573,96 @@ const Chat = () => {
               </p>
             </div>
           ) : (
-            filteredConversations.map((conv) => (
-              <motion.div
-                key={conv.id}
-                whileHover={{ scale: 1.01 }}
-                whileTap={{ scale: 0.99 }}
-                className={`w-full p-3 rounded-xl flex items-center gap-3 transition-colors mb-1 cursor-pointer ${
-                  selectedConversation?.id === conv.id 
-                    ? "bg-accent/20 border border-accent/30" 
-                    : "hover:bg-secondary/50"
-                } ${conv.consentState === "unknown" ? "border-l-2 border-l-destructive" : ""}`}
-              >
-                <div 
-                  className="flex-1 flex items-center gap-3"
-                  onClick={() => selectConversation(conv)}
+            filteredConversations.map((conv) => {
+              const unreadCount = unreadCounts[conv.id] || 0;
+              return (
+                <motion.div
+                  key={conv.id}
+                  whileHover={{ scale: 1.01 }}
+                  whileTap={{ scale: 0.99 }}
+                  className={`w-full p-3 rounded-xl flex items-center gap-3 transition-colors mb-1 cursor-pointer ${
+                    selectedConversation?.id === conv.id 
+                      ? "bg-accent/20 border border-accent/30" 
+                      : "hover:bg-secondary/50"
+                  } ${conv.consentState === "unknown" ? "border-l-2 border-l-destructive" : ""}`}
                 >
-                  <div className="relative">
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg ${
-                      selectedConversation?.id === conv.id ? "bg-accent text-accent-foreground" : "bg-secondary text-foreground"
-                    }`}>
-                      {conv.avatar}
-                    </div>
-                    {/* Red notification dot for unknown contacts */}
-                    {conv.consentState === "unknown" && (
-                      <span className="absolute -top-1 -right-1 w-3 h-3 bg-destructive rounded-full animate-pulse" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0 text-left">
-                    <div className="flex items-center justify-between">
-                      <p className="font-semibold text-sm text-foreground truncate">{conv.name}</p>
-                      <span className="text-xs text-muted-foreground">{conv.time}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm text-muted-foreground truncate">{conv.lastMessage}</p>
-                      {conv.unread > 0 && (
-                        <span className="ml-2 px-2 py-0.5 bg-accent text-accent-foreground text-xs font-medium rounded-full">
-                          {conv.unread}
+                  <div 
+                    className="flex-1 flex items-center gap-3"
+                    onClick={() => selectConversation(conv)}
+                  >
+                    <div className="relative">
+                      <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg ${
+                        selectedConversation?.id === conv.id ? "bg-accent text-accent-foreground" : "bg-secondary text-foreground"
+                      }`}>
+                        {conv.avatar}
+                      </div>
+                      {/* Red notification dot for unread messages or unknown contacts */}
+                      {(unreadCount > 0 || conv.consentState === "unknown") && (
+                        <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 bg-destructive text-destructive-foreground text-xs font-bold rounded-full flex items-center justify-center animate-pulse">
+                          {unreadCount > 0 ? (unreadCount > 99 ? '99+' : unreadCount) : '!'}
                         </span>
                       )}
                     </div>
+                    <div className="flex-1 min-w-0 text-left">
+                      <div className="flex items-center justify-between">
+                        <p className={`font-semibold text-sm truncate ${unreadCount > 0 ? 'text-foreground' : 'text-foreground'}`}>
+                          {conv.name}
+                        </p>
+                        <span className="text-xs text-muted-foreground">{conv.time}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <p className={`text-sm truncate ${unreadCount > 0 ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
+                          {conv.lastMessage}
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                </div>
-                
-                {/* Consent action buttons for unknown contacts (requests) */}
-                {conv.consentState === "unknown" && (
-                  <div className="flex gap-1">
+                  
+                  {/* Consent action buttons for unknown contacts (requests) */}
+                  {conv.consentState === "unknown" && (
+                    <div className="flex gap-1">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 text-green-500 hover:text-green-600 hover:bg-green-500/10"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleConsentAction(conv, "allow");
+                        }}
+                      >
+                        <Check className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleConsentAction(conv, "deny");
+                        }}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
+                  
+                  {/* Unblock button for blocked contacts */}
+                  {conv.consentState === "denied" && (
                     <Button
-                      size="icon"
+                      size="sm"
                       variant="ghost"
-                      className="h-8 w-8 text-green-500 hover:text-green-600 hover:bg-green-500/10"
+                      className="text-xs"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleConsentAction(conv, "allow");
                       }}
                     >
-                      <Check className="h-4 w-4" />
+                      Unblock
                     </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleConsentAction(conv, "deny");
-                      }}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                )}
-                
-                {/* Unblock button for blocked contacts */}
-                {conv.consentState === "denied" && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-xs"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleConsentAction(conv, "allow");
-                    }}
-                  >
-                    Unblock
-                  </Button>
-                )}
-              </motion.div>
-            ))
+                  )}
+                </motion.div>
+              );
+            })
           )}
         </div>
       </ScrollArea>
@@ -638,36 +718,58 @@ const Chat = () => {
       </div>
 
       {/* Messages Area */}
-      <ScrollArea className="flex-1 p-4">
-        <div className="space-y-4 max-w-3xl mx-auto">
-          {messages.map((message) => (
-            <motion.div
-              key={message.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className={`flex ${message.isOwn ? "justify-end" : "justify-start"}`}
-            >
-              <div
-                className={`max-w-[70%] rounded-2xl px-4 py-3 ${
-                  message.isOwn
-                    ? "bg-primary text-primary-foreground rounded-br-md"
-                    : "bg-secondary text-secondary-foreground rounded-bl-md"
-                }`}
+      <div className="flex-1 overflow-hidden relative">
+        <ScrollArea 
+          className="h-full p-4" 
+          ref={scrollAreaRef}
+          onScrollCapture={handleScroll}
+        >
+          <div className="space-y-4 max-w-3xl mx-auto pb-4">
+            {messages.map((message) => (
+              <motion.div
+                key={message.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={`flex ${message.isOwn ? "justify-end" : "justify-start"}`}
               >
-                <p className="text-sm leading-relaxed">{message.content}</p>
-                <div className={`flex items-center justify-end gap-1 mt-1 ${
-                  message.isOwn ? "text-primary-foreground/60" : "text-muted-foreground"
-                }`}>
-                  <span className="text-[10px]">{message.time}</span>
-                  {message.isOwn && message.status === "read" && (
-                    <span className="text-[10px]">✓✓</span>
-                  )}
+                <div
+                  className={`max-w-[70%] rounded-2xl px-4 py-3 ${
+                    message.isOwn
+                      ? "bg-primary text-primary-foreground rounded-br-md"
+                      : "bg-secondary text-secondary-foreground rounded-bl-md"
+                  }`}
+                >
+                  <p className="text-sm leading-relaxed">{message.content}</p>
+                  <div className={`flex items-center justify-end gap-1 mt-1 ${
+                    message.isOwn ? "text-primary-foreground/60" : "text-muted-foreground"
+                  }`}>
+                    <span className="text-[10px]">{message.time}</span>
+                    {message.isOwn && message.status === "read" && (
+                      <span className="text-[10px]">✓✓</span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </motion.div>
-          ))}
-        </div>
-      </ScrollArea>
+              </motion.div>
+            ))}
+            {/* Scroll anchor */}
+            <div ref={messagesEndRef} />
+          </div>
+        </ScrollArea>
+
+        {/* New messages indicator */}
+        {hasNewMessages && (
+          <motion.button
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            onClick={() => scrollToBottom()}
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground px-4 py-2 rounded-full shadow-lg flex items-center gap-2 hover:bg-primary/90 transition-colors"
+          >
+            <ChevronDown className="h-4 w-4" />
+            <span className="text-sm font-medium">New messages</span>
+          </motion.button>
+        )}
+      </div>
 
       {/* Message Input */}
       <div className="p-4 border-t border-border bg-card/50 backdrop-blur-sm">

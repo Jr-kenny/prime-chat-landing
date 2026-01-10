@@ -92,8 +92,8 @@ export const NewConversationDialog = ({
       // Step B: Sync conversations first to ensure we have the latest state
       await xmtpClient.conversations.sync();
 
-      // Step C: Check if DM already exists, otherwise create new one
-      const existingDm = xmtpClient.conversations.getDmByInboxId(peerInboxId);
+      // Step C: Check if DM already exists (async!), otherwise create new one
+      const existingDm = await xmtpClient.conversations.getDmByInboxId(peerInboxId);
       let conversation;
       
       if (existingDm) {
