@@ -18,6 +18,8 @@ import { ConsentTabs, type ConsentFilter } from "@/components/chat/ConsentTabs";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SettingsSheet } from "@/components/chat/SettingsSheet";
 import Logo from "@/components/Logo";
+import { usePrimeChatName } from "@/hooks/usePrimeChatName";
+import { useResolvedName } from "@/hooks/useNameResolution";
 
 interface DisplayConversation {
   id: string;
@@ -546,22 +548,8 @@ const Chat = () => {
         </div>
       </div>
 
-      {/* User Profile */}
-      <div className="p-4 border-b border-border bg-secondary/30">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center text-accent-foreground font-bold">
-            {address?.slice(2, 4).toUpperCase()}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-sm text-foreground truncate">Connected Wallet</p>
-            <p className="text-xs text-muted-foreground truncate">{address?.slice(0, 6)}...{address?.slice(-4)}</p>
-          </div>
-          <div className="flex items-center gap-1 text-xs text-accent">
-            <Shield className="h-3 w-3" />
-            <span>XMTP</span>
-          </div>
-        </div>
-      </div>
+      {/* User Profile - Now shows PrimeChat name */}
+      <UserProfileSection address={address} />
 
       {/* Conversations List */}
       <ScrollArea className="flex-1">
