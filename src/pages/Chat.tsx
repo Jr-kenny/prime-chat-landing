@@ -18,8 +18,8 @@ import { ConsentTabs, type ConsentFilter } from "@/components/chat/ConsentTabs";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SettingsSheet } from "@/components/chat/SettingsSheet";
 import Logo from "@/components/Logo";
-import { usePrimeChatName } from "@/hooks/usePrimeChatName";
-import { useResolvedName } from "@/hooks/useNameResolution";
+import { UserProfileSection } from "@/components/chat/UserProfileSection";
+import { ConversationNameDisplay, useConversationDisplayName } from "@/components/chat/ConversationNameDisplay";
 
 interface DisplayConversation {
   id: string;
@@ -593,13 +593,13 @@ const Chat = () => {
                         </span>
                       )}
                     </div>
-                    <div className="flex-1 min-w-0 text-left">
-                      <div className="flex items-center justify-between">
-                        <p className={`font-semibold text-sm truncate ${unreadCount > 0 ? 'text-foreground' : 'text-foreground'}`}>
-                          {conv.name}
-                        </p>
-                        <span className="text-xs text-muted-foreground">{conv.time}</span>
-                      </div>
+                      <div className="flex-1 min-w-0 text-left">
+                        <div className="flex items-center justify-between">
+                          <div className={`font-semibold text-sm truncate ${unreadCount > 0 ? 'text-foreground' : 'text-foreground'}`}>
+                            <ConversationNameDisplay inboxId={conv.peerAddress} />
+                          </div>
+                          <span className="text-xs text-muted-foreground">{conv.time}</span>
+                        </div>
                       <div className="flex items-center justify-between">
                         <p className={`text-sm truncate ${unreadCount > 0 ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
                           {conv.lastMessage}
@@ -692,7 +692,11 @@ const Chat = () => {
               </div>
             </div>
             <div>
-              <p className="font-semibold text-foreground">{selectedConversation?.name}</p>
+              <div className="font-semibold text-foreground">
+                {selectedConversation && (
+                  <ConversationNameDisplay inboxId={selectedConversation.peerAddress} />
+                )}
+              </div>
               <p className="text-xs text-muted-foreground">{selectedConversation?.peerAddress?.slice(0, 10)}...</p>
             </div>
           </div>
