@@ -2,29 +2,21 @@ import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount } from "wagmi";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { MessageCircle, Shield, Zap } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import Logo from "@/components/Logo";
-import { usePrimeChatName } from "@/hooks/usePrimeChatName";
-import { NameRegistrationModal } from "@/components/chat/NameRegistrationModal";
 
 const Welcome = () => {
   const { isConnected } = useAccount();
   const navigate = useNavigate();
-  const { hasRegisteredName, isLoading: isLoadingName } = usePrimeChatName();
-  const [showRegistration, setShowRegistration] = useState(false);
 
   useEffect(() => {
-    if (isConnected && !isLoadingName) {
-      if (hasRegisteredName) {
-        navigate("/chat");
-      } else {
-        setShowRegistration(true);
-      }
+    if (isConnected) {
+      navigate("/chat");
     }
-  }, [isConnected, hasRegisteredName, isLoadingName, navigate]);
+  }, [isConnected, navigate]);
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6">
@@ -171,13 +163,6 @@ const Welcome = () => {
           </Link>
         </motion.div>
       </motion.div>
-      
-      {/* Name Registration Modal */}
-      <NameRegistrationModal
-        open={showRegistration}
-        onOpenChange={setShowRegistration}
-        onRegistered={() => navigate("/chat")}
-      />
     </div>
   );
 };
