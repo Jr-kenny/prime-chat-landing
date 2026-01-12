@@ -20,6 +20,7 @@ import { SettingsSheet } from "@/components/chat/SettingsSheet";
 import Logo from "@/components/Logo";
 import { UserProfileSection } from "@/components/chat/UserProfileSection";
 import { ConversationNameDisplay, useConversationDisplayName } from "@/components/chat/ConversationNameDisplay";
+import { setXmtpClientForResolution } from "@/hooks/useNameResolution";
 
 interface DisplayConversation {
   id: string;
@@ -41,6 +42,32 @@ interface DisplayMessage {
   isOwn: boolean;
   status?: "sent" | "delivered" | "read";
   timestamp: number; // For tracking
+}
+
+/**
+ * Safely extract text content from XMTP message content
+ * Handles various content types including plain text and rich content objects
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractMessageContent(content: any): string {
+  if (content === null || content === undefined) {
+    return '';
+  }
+  if (typeof content === 'string') {
+    return content;
+  }
+  // Handle objects with text property
+  if (typeof content === 'object') {
+    if (content.text) return content.text;
+    if (content.content) return extractMessageContent(content.content);
+    // Last resort: try to stringify but filter [object Object]
+    const str = String(content);
+    if (str === '[object Object]') {
+      return '[Unsupported content]';
+    }
+    return str;
+  }
+  return String(content);
 }
 
 const Chat = () => {
@@ -125,6 +152,8 @@ const Chat = () => {
       try {
         const client = await initializeXmtpClient(walletClient);
         setXmtpClient(client);
+        // Set XMTP client for name resolution (to resolve inbox IDs to addresses)
+        setXmtpClientForResolution(client);
         toast.success("Connected to XMTP network");
       } catch (error) {
         console.error("Failed to initialize XMTP:", error);
@@ -180,7 +209,7 @@ const Chat = () => {
             id: conv.id,
             peerAddress,
             name: `${peerAddress.slice(0, 6)}...${peerAddress.slice(-4)}`,
-            lastMessage: lastMsg?.content?.toString() || 'No messages yet',
+            lastMessage: extractMessageContent(lastMsg?.content) || 'No messages yet',
             time: lastMsg ? new Date(lastMessageTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
             unread: unreadCounts[conv.id] || 0,
             avatar: peerAddress.slice(2, 4).toUpperCase(),
@@ -277,7 +306,7 @@ const Chat = () => {
         
         const displayMessages: DisplayMessage[] = xmtpMessages.map((msg) => ({
           id: msg.id,
-          content: msg.content?.toString() || '',
+          content: extractMessageContent(msg.content),
           time: new Date(Number(msg.sentAtNs) / 1000000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           isOwn: msg.senderInboxId === xmtpClient?.inboxId,
           status: "delivered" as const,
@@ -305,7 +334,7 @@ const Chat = () => {
             
             const newMessage: DisplayMessage = {
               id: message.id,
-              content: message.content?.toString() || '',
+              content: extractMessageContent(message.content),
               time: new Date(Number(message.sentAtNs) / 1000000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
               isOwn: message.senderInboxId === xmtpClient?.inboxId,
               status: "delivered" as const,
@@ -382,7 +411,7 @@ const Chat = () => {
       const xmtpMessages = await selectedConversation.xmtpConversation.messages();
       const displayMessages: DisplayMessage[] = xmtpMessages.map((msg) => ({
         id: msg.id,
-        content: msg.content?.toString() || '',
+        content: extractMessageContent(msg.content),
         time: new Date(Number(msg.sentAtNs) / 1000000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         isOwn: msg.senderInboxId === xmtpClient?.inboxId,
         status: "delivered" as const,

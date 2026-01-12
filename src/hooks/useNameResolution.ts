@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { getNameByAddress } from '@/lib/nameRegistry';
 
 interface NameCache {
-  [address: string]: {
+  [key: string]: {
     name: string | null;
+    address: `0x${string}` | null;
     timestamp: number;
   };
 }
@@ -12,9 +13,18 @@ interface NameCache {
 const globalNameCache: NameCache = {};
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
+// Global XMTP client reference for inbox state lookups
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let xmtpClientRef: any = null;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function setXmtpClientForResolution(client: any) {
+  xmtpClientRef = client;
+}
+
 /**
  * Extract wallet address from XMTP inbox ID
- * Inbox IDs are typically the wallet address or derived from it
+ * First checks if it's already an address, then tries XMTP lookup
  */
 export function extractAddressFromInboxId(inboxId: string): `0x${string}` | null {
   // If it's already a valid ethereum address
@@ -33,6 +43,36 @@ export function extractAddressFromInboxId(inboxId: string): `0x${string}` | null
 }
 
 /**
+ * Async function to resolve inbox ID to wallet address using XMTP client
+ */
+async function resolveInboxIdToAddress(inboxId: string): Promise<`0x${string}` | null> {
+  // First try sync extraction
+  const syncAddress = extractAddressFromInboxId(inboxId);
+  if (syncAddress) return syncAddress;
+  
+  // If we have XMTP client, use it to look up the inbox state
+  if (xmtpClientRef) {
+    try {
+      const inboxStates = await xmtpClientRef.inboxStateFromInboxIds([inboxId]);
+      if (inboxStates && inboxStates.length > 0) {
+        const state = inboxStates[0];
+        // Find Ethereum identifier
+        const ethIdentifier = state.identifiers?.find(
+          (i: { identifierKind: string; identifier: string }) => i.identifierKind === 'Ethereum'
+        );
+        if (ethIdentifier?.identifier) {
+          return ethIdentifier.identifier as `0x${string}`;
+        }
+      }
+    } catch (error) {
+      console.error('Failed to resolve inbox ID to address:', error);
+    }
+  }
+  
+  return null;
+}
+
+/**
  * Hook to resolve a single inbox ID to a PrimeChat name
  */
 export function useResolvedName(inboxId: string | undefined): {
@@ -42,48 +82,79 @@ export function useResolvedName(inboxId: string | undefined): {
   address: `0x${string}` | null;
 } {
   const [name, setName] = useState<string | null>(null);
+  const [address, setAddress] = useState<`0x${string}` | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   
-  const address = inboxId ? extractAddressFromInboxId(inboxId) : null;
-  
   useEffect(() => {
-    if (!address) {
+    if (!inboxId) {
       setName(null);
+      setAddress(null);
       return;
     }
     
-    // Check cache first
-    const cached = globalNameCache[address];
+    // Check cache first (by inbox ID)
+    const cached = globalNameCache[inboxId];
     if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
       setName(cached.name);
+      setAddress(cached.address);
       return;
     }
     
     setIsLoading(true);
     
-    getNameByAddress(address)
-      .then((resolvedName) => {
-        globalNameCache[address] = {
-          name: resolvedName,
-          timestamp: Date.now(),
-        };
-        setName(resolvedName);
+    // First resolve inbox ID to wallet address
+    resolveInboxIdToAddress(inboxId)
+      .then(async (resolvedAddress) => {
+        setAddress(resolvedAddress);
+        
+        if (!resolvedAddress) {
+          // Couldn't resolve to address, cache as null
+          globalNameCache[inboxId] = {
+            name: null,
+            address: null,
+            timestamp: Date.now(),
+          };
+          setName(null);
+          return;
+        }
+        
+        // Now look up the name from the registry
+        try {
+          const resolvedName = await getNameByAddress(resolvedAddress);
+          globalNameCache[inboxId] = {
+            name: resolvedName,
+            address: resolvedAddress,
+            timestamp: Date.now(),
+          };
+          setName(resolvedName);
+        } catch (error) {
+          console.error('Failed to resolve name:', error);
+          globalNameCache[inboxId] = {
+            name: null,
+            address: resolvedAddress,
+            timestamp: Date.now(),
+          };
+          setName(null);
+        }
       })
       .catch((error) => {
-        console.error('Failed to resolve name:', error);
+        console.error('Failed to resolve inbox ID:', error);
         setName(null);
+        setAddress(null);
       })
       .finally(() => {
         setIsLoading(false);
       });
-  }, [address]);
+  }, [inboxId]);
   
-  // Generate display name (registered name or truncated address/inbox)
+  // Generate display name (registered name or truncated address or truncated inbox ID)
   const displayName = name 
     ? name 
-    : inboxId 
-      ? `${inboxId.slice(0, 6)}...${inboxId.slice(-4)}`
-      : 'Unknown';
+    : address
+      ? `${address.slice(0, 6)}...${address.slice(-4)}`
+      : inboxId 
+        ? `${inboxId.slice(0, 6)}...${inboxId.slice(-4)}`
+        : 'Unknown';
   
   return { name, displayName, isLoading, address };
 }
@@ -99,19 +170,14 @@ export function useBatchNameResolution(inboxIds: string[]): {
 } {
   const [names, setNames] = useState<Map<string, string | null>>(new Map());
   const [isLoading, setIsLoading] = useState(false);
-  const resolveQueue = useRef<Set<string>>(new Set());
   
   const resolve = useCallback(async () => {
     const idsToResolve = inboxIds.filter((id) => {
-      const address = extractAddressFromInboxId(id);
-      if (!address) return false;
-      
-      // Check if already cached and not expired
-      const cached = globalNameCache[address];
+      // Check if already cached (by inbox ID)
+      const cached = globalNameCache[id];
       if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
         return false;
       }
-      
       return true;
     });
     
@@ -119,9 +185,8 @@ export function useBatchNameResolution(inboxIds: string[]): {
       // Update from cache
       const cachedNames = new Map<string, string | null>();
       inboxIds.forEach((id) => {
-        const address = extractAddressFromInboxId(id);
-        if (address && globalNameCache[address]) {
-          cachedNames.set(id, globalNameCache[address].name);
+        if (globalNameCache[id]) {
+          cachedNames.set(id, globalNameCache[id].name);
         }
       });
       setNames(cachedNames);
@@ -135,21 +200,20 @@ export function useBatchNameResolution(inboxIds: string[]): {
     // Resolve in parallel
     await Promise.all(
       idsToResolve.map(async (id) => {
-        const address = extractAddressFromInboxId(id);
-        if (!address) {
-          results.set(id, null);
-          return;
-        }
-        
         try {
+          const address = await resolveInboxIdToAddress(id);
+          if (!address) {
+            globalNameCache[id] = { name: null, address: null, timestamp: Date.now() };
+            results.set(id, null);
+            return;
+          }
+          
           const name = await getNameByAddress(address);
-          globalNameCache[address] = {
-            name,
-            timestamp: Date.now(),
-          };
+          globalNameCache[id] = { name, address, timestamp: Date.now() };
           results.set(id, name);
         } catch (error) {
           console.error(`Failed to resolve name for ${id}:`, error);
+          globalNameCache[id] = { name: null, address: null, timestamp: Date.now() };
           results.set(id, null);
         }
       })
@@ -160,11 +224,8 @@ export function useBatchNameResolution(inboxIds: string[]): {
     inboxIds.forEach((id) => {
       if (results.has(id)) {
         mergedNames.set(id, results.get(id)!);
-      } else {
-        const address = extractAddressFromInboxId(id);
-        if (address && globalNameCache[address]) {
-          mergedNames.set(id, globalNameCache[address].name);
-        }
+      } else if (globalNameCache[id]) {
+        mergedNames.set(id, globalNameCache[id].name);
       }
     });
     
@@ -180,10 +241,14 @@ export function useBatchNameResolution(inboxIds: string[]): {
   const displayNames = new Map<string, string>();
   inboxIds.forEach((id) => {
     const name = names.get(id);
-    displayNames.set(
-      id,
-      name ? name : `${id.slice(0, 6)}...${id.slice(-4)}`
-    );
+    const cached = globalNameCache[id];
+    if (name) {
+      displayNames.set(id, name);
+    } else if (cached?.address) {
+      displayNames.set(id, `${cached.address.slice(0, 6)}...${cached.address.slice(-4)}`);
+    } else {
+      displayNames.set(id, `${id.slice(0, 6)}...${id.slice(-4)}`);
+    }
   });
   
   return { names, displayNames, isLoading, refresh: resolve };
@@ -192,9 +257,9 @@ export function useBatchNameResolution(inboxIds: string[]): {
 /**
  * Clear the name cache (useful after registration)
  */
-export function clearNameCache(address?: string) {
-  if (address) {
-    delete globalNameCache[address];
+export function clearNameCache(inboxId?: string) {
+  if (inboxId) {
+    delete globalNameCache[inboxId];
   } else {
     Object.keys(globalNameCache).forEach((key) => {
       delete globalNameCache[key];
