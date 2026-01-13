@@ -44,24 +44,35 @@ export function extractAddressFromInboxId(inboxId: string): `0x${string}` | null
 
 /**
  * Async function to resolve inbox ID to wallet address using XMTP client
+ * This is the key function - XMTP inbox IDs are NOT wallet addresses,
+ * we need to query XMTP to get the actual wallet address.
  */
-async function resolveInboxIdToAddress(inboxId: string): Promise<`0x${string}` | null> {
-  // First try sync extraction
+export async function resolveInboxIdToAddress(inboxId: string): Promise<`0x${string}` | null> {
+  // First try sync extraction (in case it's already an address)
   const syncAddress = extractAddressFromInboxId(inboxId);
   if (syncAddress) return syncAddress;
   
   // If we have XMTP client, use it to look up the inbox state
   if (xmtpClientRef) {
     try {
+      // XMTP SDK: inboxStateFromInboxIds returns array of inbox states
+      // Each state has `identifiers` array with kind and identifier
       const inboxStates = await xmtpClientRef.inboxStateFromInboxIds([inboxId]);
       if (inboxStates && inboxStates.length > 0) {
         const state = inboxStates[0];
-        // Find Ethereum identifier
-        const ethIdentifier = state.identifiers?.find(
-          (i: { identifierKind: string; identifier: string }) => i.identifierKind === 'Ethereum'
-        );
-        if (ethIdentifier?.identifier) {
-          return ethIdentifier.identifier as `0x${string}`;
+        // Find Ethereum identifier from the inbox state
+        if (state.identifiers && Array.isArray(state.identifiers)) {
+          const ethIdentifier = state.identifiers.find(
+            (i: { identifierKind: string; identifier: string }) => 
+              i.identifierKind === 'Ethereum' || i.identifierKind === 'ethereum'
+          );
+          if (ethIdentifier?.identifier) {
+            return ethIdentifier.identifier.toLowerCase() as `0x${string}`;
+          }
+        }
+        // Fallback: try accountAddresses if available (older SDK versions)
+        if (state.accountAddresses && state.accountAddresses.length > 0) {
+          return state.accountAddresses[0].toLowerCase() as `0x${string}`;
         }
       }
     } catch (error) {
@@ -74,6 +85,12 @@ async function resolveInboxIdToAddress(inboxId: string): Promise<`0x${string}` |
 
 /**
  * Hook to resolve a single inbox ID to a PrimeChat name
+ * 
+ * Flow:
+ * 1. Take XMTP inbox ID (e.g., "507936...d436")
+ * 2. Query XMTP to get the wallet address from that inbox ID
+ * 3. Query PrimeChat Name Registry to get the username for that wallet
+ * 4. Display username if found, otherwise show truncated wallet address
  */
 export function useResolvedName(inboxId: string | undefined): {
   name: string | null;
@@ -84,11 +101,17 @@ export function useResolvedName(inboxId: string | undefined): {
   const [name, setName] = useState<string | null>(null);
   const [address, setAddress] = useState<`0x${string}` | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const resolutionInProgress = useRef<string | null>(null);
   
   useEffect(() => {
     if (!inboxId) {
       setName(null);
       setAddress(null);
+      return;
+    }
+    
+    // Prevent duplicate resolutions
+    if (resolutionInProgress.current === inboxId) {
       return;
     }
     
@@ -100,11 +123,14 @@ export function useResolvedName(inboxId: string | undefined): {
       return;
     }
     
+    resolutionInProgress.current = inboxId;
     setIsLoading(true);
     
-    // First resolve inbox ID to wallet address
-    resolveInboxIdToAddress(inboxId)
-      .then(async (resolvedAddress) => {
+    // Async resolution: InboxID -> Wallet Address -> PrimeChat Name
+    const resolve = async () => {
+      try {
+        // Step 1: Resolve inbox ID to wallet address via XMTP
+        const resolvedAddress = await resolveInboxIdToAddress(inboxId);
         setAddress(resolvedAddress);
         
         if (!resolvedAddress) {
@@ -118,36 +144,30 @@ export function useResolvedName(inboxId: string | undefined): {
           return;
         }
         
-        // Now look up the name from the registry
-        try {
-          const resolvedName = await getNameByAddress(resolvedAddress);
-          globalNameCache[inboxId] = {
-            name: resolvedName,
-            address: resolvedAddress,
-            timestamp: Date.now(),
-          };
-          setName(resolvedName);
-        } catch (error) {
-          console.error('Failed to resolve name:', error);
-          globalNameCache[inboxId] = {
-            name: null,
-            address: resolvedAddress,
-            timestamp: Date.now(),
-          };
-          setName(null);
-        }
-      })
-      .catch((error) => {
-        console.error('Failed to resolve inbox ID:', error);
+        // Step 2: Look up the PrimeChat name from the registry
+        const resolvedName = await getNameByAddress(resolvedAddress);
+        globalNameCache[inboxId] = {
+          name: resolvedName,
+          address: resolvedAddress,
+          timestamp: Date.now(),
+        };
+        setName(resolvedName);
+      } catch (error) {
+        console.error('Failed to resolve name:', error);
         setName(null);
-        setAddress(null);
-      })
-      .finally(() => {
+      } finally {
         setIsLoading(false);
-      });
+        resolutionInProgress.current = null;
+      }
+    };
+    
+    resolve();
   }, [inboxId]);
   
-  // Generate display name (registered name or truncated address or truncated inbox ID)
+  // Generate display name priority: 
+  // 1. PrimeChat registered name
+  // 2. Truncated wallet address (if we resolved it)
+  // 3. Truncated inbox ID (fallback)
   const displayName = name 
     ? name 
     : address
@@ -172,6 +192,8 @@ export function useBatchNameResolution(inboxIds: string[]): {
   const [isLoading, setIsLoading] = useState(false);
   
   const resolve = useCallback(async () => {
+    if (inboxIds.length === 0) return;
+    
     const idsToResolve = inboxIds.filter((id) => {
       // Check if already cached (by inbox ID)
       const cached = globalNameCache[id];

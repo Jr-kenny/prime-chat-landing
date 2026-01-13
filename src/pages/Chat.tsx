@@ -17,9 +17,10 @@ import { NewConversationDialog } from "@/components/chat/NewConversationDialog";
 import { ConsentTabs, type ConsentFilter } from "@/components/chat/ConsentTabs";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SettingsSheet } from "@/components/chat/SettingsSheet";
+import { PeerInfoSheet } from "@/components/chat/PeerInfoSheet";
 import Logo from "@/components/Logo";
 import { UserProfileSection } from "@/components/chat/UserProfileSection";
-import { ConversationNameDisplay, useConversationDisplayName } from "@/components/chat/ConversationNameDisplay";
+import { ConversationNameDisplay } from "@/components/chat/ConversationNameDisplay";
 import { setXmtpClientForResolution } from "@/hooks/useNameResolution";
 
 interface DisplayConversation {
@@ -93,6 +94,7 @@ const Chat = () => {
   const [consentFilter, setConsentFilter] = useState<ConsentFilter>("allowed");
   const [searchQuery, setSearchQuery] = useState("");
   const [showSettings, setShowSettings] = useState(false);
+  const [showPeerInfo, setShowPeerInfo] = useState(false);
 
   // Auto-scroll and unread tracking
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -166,19 +168,21 @@ const Chat = () => {
     initXmtp();
   }, [walletClient, address, xmtpClient, isInitializing]);
 
-  // Load conversations from XMTP
-  const loadConversations = useCallback(async () => {
+  // Load conversations from XMTP (optimized - sync only once, not per-message)
+  const loadConversations = useCallback(async (skipSync = false) => {
     if (!xmtpClient) return;
     
     try {
-      // Sync + list across consent states so "Requests" (unknown) actually appear
       const consentStates: ConsentState[] = [
         ConsentState.Allowed,
         ConsentState.Unknown,
         ConsentState.Denied,
       ];
 
-      await xmtpClient.conversations.syncAll(consentStates);
+      // Only sync if not skipping (initial load syncs, updates don't)
+      if (!skipSync) {
+        await xmtpClient.conversations.syncAll(consentStates);
+      }
 
       // List all conversations (Inbox + Requests + Blocked)
       const convList = await xmtpClient.conversations.list({ consentStates });
@@ -243,8 +247,8 @@ const Chat = () => {
         conversationStream = await xmtpClient.conversations.stream({
           onValue: async () => {
             if (!isActive) return;
-            // Reload conversations when a new one arrives
-            await loadConversations();
+            // Reload conversations without full sync (faster)
+            await loadConversations(true);
           },
         });
 
@@ -265,8 +269,8 @@ const Chat = () => {
               }));
             }
             
-            // Reload conversations to update last message
-            await loadConversations();
+            // Reload conversations without full sync (faster update)
+            await loadConversations(true);
           },
         });
       } catch (error) {
@@ -730,10 +734,16 @@ const Chat = () => {
             </div>
           </div>
           <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon" className="h-9 w-9">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-9 w-9"
+              onClick={() => setShowPeerInfo(true)}
+              title="View contact info"
+            >
               <Users className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="icon" className="h-9 w-9">
+            <Button variant="ghost" size="icon" className="h-9 w-9" disabled title="More options (coming soon)">
               <MoreVertical className="h-4 w-4" />
             </Button>
           </div>
@@ -882,6 +892,13 @@ const Chat = () => {
       open={showSettings}
       onOpenChange={setShowSettings}
       address={address}
+    />
+    
+    {/* Peer Info Sheet */}
+    <PeerInfoSheet
+      open={showPeerInfo}
+      onOpenChange={setShowPeerInfo}
+      peerInboxId={selectedConversation?.peerAddress}
     />
     </>
   );
