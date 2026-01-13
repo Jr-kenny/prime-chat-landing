@@ -51,35 +51,42 @@ export async function resolveInboxIdToAddress(inboxId: string): Promise<`0x${str
   // First try sync extraction (in case it's already an address)
   const syncAddress = extractAddressFromInboxId(inboxId);
   if (syncAddress) return syncAddress;
-  
+
   // If we have XMTP client, use it to look up the inbox state
-  if (xmtpClientRef) {
+  // NOTE: In @xmtp/browser-sdk v5, this lives under `client.preferences`
+  if (xmtpClientRef?.preferences?.inboxStateFromInboxIds) {
     try {
-      // XMTP SDK: inboxStateFromInboxIds returns array of inbox states
-      // Each state has `identifiers` array with kind and identifier
-      const inboxStates = await xmtpClientRef.inboxStateFromInboxIds([inboxId]);
+      // Try cached first for speed, then fall back to a network refresh if needed
+      let inboxStates = await xmtpClientRef.preferences.inboxStateFromInboxIds(
+        [inboxId],
+        false,
+      );
+      if (!inboxStates || inboxStates.length === 0) {
+        inboxStates = await xmtpClientRef.preferences.inboxStateFromInboxIds(
+          [inboxId],
+          true,
+        );
+      }
+
       if (inboxStates && inboxStates.length > 0) {
         const state = inboxStates[0];
+
         // Find Ethereum identifier from the inbox state
         if (state.identifiers && Array.isArray(state.identifiers)) {
           const ethIdentifier = state.identifiers.find(
-            (i: { identifierKind: string; identifier: string }) => 
-              i.identifierKind === 'Ethereum' || i.identifierKind === 'ethereum'
+            (i: { identifierKind: string; identifier: string }) =>
+              i.identifierKind === "Ethereum",
           );
-          if (ethIdentifier?.identifier) {
+          if (ethIdentifier?.identifier && /^0x[a-fA-F0-9]{40}$/.test(ethIdentifier.identifier)) {
             return ethIdentifier.identifier.toLowerCase() as `0x${string}`;
           }
         }
-        // Fallback: try accountAddresses if available (older SDK versions)
-        if (state.accountAddresses && state.accountAddresses.length > 0) {
-          return state.accountAddresses[0].toLowerCase() as `0x${string}`;
-        }
       }
     } catch (error) {
-      console.error('Failed to resolve inbox ID to address:', error);
+      console.error("Failed to resolve inbox ID to address:", error);
     }
   }
-  
+
   return null;
 }
 
