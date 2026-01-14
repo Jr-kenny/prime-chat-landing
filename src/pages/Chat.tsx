@@ -17,6 +17,7 @@ import { NewConversationDialog } from "@/components/chat/NewConversationDialog";
 import { ConsentTabs, type ConsentFilter } from "@/components/chat/ConsentTabs";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SettingsSheet } from "@/components/chat/SettingsSheet";
+import { ShareDialog } from "@/components/chat/ShareDialog";
 import { PeerInfoSheet } from "@/components/chat/PeerInfoSheet";
 import Logo from "@/components/Logo";
 import { UserProfileSection } from "@/components/chat/UserProfileSection";
@@ -550,6 +551,7 @@ const Chat = () => {
             <Logo size="sm" />
           </Link>
           <div className="flex items-center gap-2">
+            <ShareDialog />
             <ThemeToggle />
             <Button 
               variant="ghost" 

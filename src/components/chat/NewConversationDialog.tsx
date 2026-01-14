@@ -1,8 +1,7 @@
 import { useState } from "react";
-import { Loader2, Search, CheckCircle, XCircle, MessageSquare, User } from "lucide-react";
+import { Loader2, Search, CheckCircle, XCircle, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -27,90 +26,62 @@ export const NewConversationDialog = ({
   xmtpClient,
   onConversationCreated,
 }: NewConversationDialogProps) => {
-  const [walletAddress, setWalletAddress] = useState("");
-  const [username, setUsername] = useState("");
+  const [searchInput, setSearchInput] = useState("");
   const [isChecking, setIsChecking] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [canMessage, setCanMessage] = useState<boolean | null>(null);
   const [resolvedAddress, setResolvedAddress] = useState<string | null>(null);
-  const [searchTab, setSearchTab] = useState<"wallet" | "username">("wallet");
+  const [resolvedUsername, setResolvedUsername] = useState<string | null>(null);
 
   const isValidAddress = (address: string) => {
     return /^0x[a-fA-F0-9]{40}$/.test(address);
   };
 
-  // Check reachability by wallet address
-  const checkReachabilityByWallet = async () => {
+  // Combined check - handles both wallet addresses and usernames
+  const checkReachability = async () => {
     if (!xmtpClient) {
       toast.error("XMTP client not connected");
       return;
     }
-    if (!isValidAddress(walletAddress)) {
-      toast.error("Please enter a valid Ethereum address");
-      return;
-    }
 
-    setIsChecking(true);
-    setCanMessage(null);
-    setResolvedAddress(walletAddress);
-
-    try {
-      const identifier = {
-        identifier: walletAddress.toLowerCase(),
-        identifierKind: "Ethereum" as const,
-      };
-      const canMessageResult = await xmtpClient.canMessage([identifier]);
-
-      const [resolvedKey] = canMessageResult.keys();
-      const isReachable = canMessageResult.get(resolvedKey) ?? false;
-
-      setCanMessage(isReachable);
-
-      if (isReachable) {
-        toast.success("Wallet is reachable on XMTP!");
-      } else {
-        toast.error("This wallet hasn't joined XMTP yet");
-      }
-    } catch (error) {
-      console.error("Failed to check reachability:", error);
-      toast.error("Failed to check wallet reachability");
-      setCanMessage(false);
-    } finally {
-      setIsChecking(false);
-    }
-  };
-
-  // Check reachability by PrimeChat username
-  const checkReachabilityByUsername = async () => {
-    if (!xmtpClient) {
-      toast.error("XMTP client not connected");
-      return;
-    }
-    if (!username.trim()) {
-      toast.error("Please enter a username");
+    const input = searchInput.trim();
+    if (!input) {
+      toast.error("Please enter a wallet address or username");
       return;
     }
 
     setIsChecking(true);
     setCanMessage(null);
     setResolvedAddress(null);
+    setResolvedUsername(null);
 
     try {
-      // Step 1: Look up wallet address from PrimeChat name registry
-      const address = await getAddressByName(username.toLowerCase());
-      
-      if (!address) {
-        toast.error("Username not found on PrimeChat");
-        setCanMessage(false);
-        setIsChecking(false);
-        return;
-      }
-      
-      setResolvedAddress(address);
+      let targetAddress: string;
 
-      // Step 2: Check if that wallet is on XMTP
+      // Check if input is a wallet address or username
+      if (isValidAddress(input)) {
+        // It's a wallet address
+        targetAddress = input;
+        setResolvedAddress(input);
+      } else {
+        // It's a username - look up in PrimeChat registry
+        const address = await getAddressByName(input.toLowerCase());
+        
+        if (!address) {
+          toast.error("Username not found on PrimeChat");
+          setCanMessage(false);
+          setIsChecking(false);
+          return;
+        }
+        
+        targetAddress = address;
+        setResolvedAddress(address);
+        setResolvedUsername(input);
+      }
+
+      // Check if that wallet is on XMTP
       const identifier = {
-        identifier: address.toLowerCase(),
+        identifier: targetAddress.toLowerCase(),
         identifierKind: "Ethereum" as const,
       };
       const canMessageResult = await xmtpClient.canMessage([identifier]);
@@ -121,13 +92,13 @@ export const NewConversationDialog = ({
       setCanMessage(isReachable);
 
       if (isReachable) {
-        toast.success(`Found ${username} - wallet is reachable!`);
+        toast.success(resolvedUsername ? `Found ${resolvedUsername} - ready to chat!` : "Wallet is reachable!");
       } else {
-        toast.error(`${username}'s wallet hasn't joined XMTP yet`);
+        toast.error(resolvedUsername ? `${resolvedUsername}'s wallet hasn't joined XMTP yet` : "This wallet hasn't joined XMTP yet");
       }
     } catch (error) {
       console.error("Failed to check reachability:", error);
-      toast.error("Failed to look up username");
+      toast.error("Failed to check reachability");
       setCanMessage(false);
     } finally {
       setIsChecking(false);
@@ -177,17 +148,18 @@ export const NewConversationDialog = ({
   };
 
   const handleClose = () => {
-    setWalletAddress("");
-    setUsername("");
+    setSearchInput("");
     setCanMessage(null);
     setResolvedAddress(null);
+    setResolvedUsername(null);
     onOpenChange(false);
   };
 
-  const handleTabChange = (tab: string) => {
-    setSearchTab(tab as "wallet" | "username");
-    setCanMessage(null);
-    setResolvedAddress(null);
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !isChecking && searchInput.trim()) {
+      e.preventDefault();
+      checkReachability();
+    }
   };
 
   return (
@@ -196,86 +168,43 @@ export const NewConversationDialog = ({
         <DialogHeader>
           <DialogTitle>New Conversation</DialogTitle>
           <DialogDescription>
-            Search by wallet address or PrimeChat username
+            Enter a wallet address or PrimeChat username
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs value={searchTab} onValueChange={handleTabChange} className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="wallet" className="gap-2">
-              <Search className="h-4 w-4" />
-              Wallet
-            </TabsTrigger>
-            <TabsTrigger value="username" className="gap-2">
-              <User className="h-4 w-4" />
-              Username
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="wallet" className="space-y-4 pt-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">
-                Wallet Address
-              </label>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="0x..."
-                  value={walletAddress}
-                  onChange={(e) => {
-                    setWalletAddress(e.target.value);
-                    setCanMessage(null);
-                    setResolvedAddress(null);
-                  }}
-                  className="flex-1"
-                />
-                <Button
-                  onClick={checkReachabilityByWallet}
-                  disabled={!isValidAddress(walletAddress) || isChecking}
-                  variant="secondary"
-                >
-                  {isChecking ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Search className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="username" className="space-y-4 pt-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">
-                PrimeChat Username
-              </label>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Enter username..."
-                  value={username}
-                  onChange={(e) => {
-                    setUsername(e.target.value);
-                    setCanMessage(null);
-                    setResolvedAddress(null);
-                  }}
-                  className="flex-1"
-                />
-                <Button
-                  onClick={checkReachabilityByUsername}
-                  disabled={!username.trim() || isChecking}
-                  variant="secondary"
-                >
-                  {isChecking ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Search className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
-            </div>
-          </TabsContent>
-        </Tabs>
-
         <div className="space-y-4">
+          {/* Unified search input */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">
+              Wallet / Username
+            </label>
+            <div className="flex gap-2">
+              <Input
+                placeholder="0x... or username"
+                value={searchInput}
+                onChange={(e) => {
+                  setSearchInput(e.target.value);
+                  setCanMessage(null);
+                  setResolvedAddress(null);
+                  setResolvedUsername(null);
+                }}
+                onKeyPress={handleKeyPress}
+                className="flex-1"
+              />
+              <Button
+                onClick={checkReachability}
+                disabled={!searchInput.trim() || isChecking}
+                variant="secondary"
+              >
+                {isChecking ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Search className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+          </div>
+
           {/* Reachability Status */}
           {canMessage !== null && (
             <div
@@ -290,7 +219,7 @@ export const NewConversationDialog = ({
                   <CheckCircle className="h-5 w-5 text-green-500" />
                   <div className="flex-1">
                     <p className="text-sm font-medium text-foreground">
-                      {searchTab === "username" ? `${username} is on XMTP` : "Wallet is on XMTP"}
+                      {resolvedUsername ? `${resolvedUsername} is on XMTP` : "Wallet is on XMTP"}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {resolvedAddress?.slice(0, 10)}...{resolvedAddress?.slice(-8)}
@@ -302,12 +231,12 @@ export const NewConversationDialog = ({
                   <XCircle className="h-5 w-5 text-destructive" />
                   <div className="flex-1">
                     <p className="text-sm font-medium text-foreground">
-                      {searchTab === "username" ? "Username not found or not on XMTP" : "Not on XMTP"}
+                      Not reachable on XMTP
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {searchTab === "username" 
-                        ? "This user may not have registered or joined XMTP"
-                        : "This wallet hasn't created an XMTP identity yet"
+                      {isValidAddress(searchInput) 
+                        ? "This wallet hasn't created an XMTP identity yet"
+                        : "Username not found or hasn't joined XMTP"
                       }
                     </p>
                   </div>
