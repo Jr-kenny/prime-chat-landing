@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 
-const PRIMECHAT_URL = "https://primechat.lovable.app";
+const PRIMECHAT_URL = "https://prime-chat-landing.vercel.app/chat";
 
 export const ShareDialog = () => {
   const [copied, setCopied] = useState(false);
