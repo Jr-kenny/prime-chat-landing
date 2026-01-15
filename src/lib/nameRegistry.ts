@@ -129,7 +129,7 @@ async function callContract<T>(
 // Helper to get name by address
 export async function getNameByAddress(address: `0x${string}`): Promise<string | null> {
   try {
-    const name = await callContract<string>('getNameByAddress', [address], [{ name: '', type: 'string' }]);
+    const name = await callContract<string>('getNameByAddress', [address]);
     return name && name.length > 0 ? name : null;
   } catch (error) {
     console.error('Failed to get name for address:', error);
@@ -140,7 +140,7 @@ export async function getNameByAddress(address: `0x${string}`): Promise<string |
 // Helper to check if address has a name
 export async function hasName(address: `0x${string}`): Promise<boolean> {
   try {
-    return await callContract<boolean>('hasName', [address], [{ name: '', type: 'bool' }]);
+    return await callContract<boolean>('hasName', [address]);
   } catch (error) {
     console.error('Failed to check if address has name:', error);
     return false;
@@ -150,7 +150,7 @@ export async function hasName(address: `0x${string}`): Promise<boolean> {
 // Helper to check if name is taken
 export async function isNameTaken(name: string): Promise<boolean> {
   try {
-    return await callContract<boolean>('isNameTaken', [name], [{ name: '', type: 'bool' }]);
+    return await callContract<boolean>('isNameTaken', [name]);
   } catch (error) {
     console.error('Failed to check if name is taken:', error);
     return true; // Default to taken on error for safety
@@ -160,7 +160,7 @@ export async function isNameTaken(name: string): Promise<boolean> {
 // Helper to get address by name
 export async function getAddressByName(name: string): Promise<`0x${string}` | null> {
   try {
-    const address = await callContract<`0x${string}`>('getAddressByName', [name], [{ name: '', type: 'address' }]);
+    const address = await callContract<`0x${string}`>('getAddressByName', [name]);
     return address && address !== '0x0000000000000000000000000000000000000000' ? address : null;
   } catch (error) {
     console.error('Failed to get address for name:', error);
