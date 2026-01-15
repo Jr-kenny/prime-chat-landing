@@ -160,7 +160,14 @@ const Chat = () => {
         toast.success("Connected to XMTP network");
       } catch (error) {
         console.error("Failed to initialize XMTP:", error);
-        toast.error("Failed to connect to XMTP network");
+        const msg = error instanceof Error ? error.message : String(error);
+        if (msg.includes('Wrong chain id') || msg.includes('invalid argument')) {
+          toast.error("Identity conflict detected. Please refresh the page to retry.");
+        } else if (msg.includes('createSyncAccessHandle')) {
+          toast.error("XMTP database locked. Close other tabs and refresh.");
+        } else {
+          toast.error("Failed to connect to XMTP network");
+        }
       } finally {
         setIsInitializing(false);
       }
