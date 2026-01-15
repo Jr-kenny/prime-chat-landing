@@ -270,7 +270,7 @@ export const NameRegistrationModal = ({
           <div className="flex items-center gap-2 p-3 bg-secondary/50 rounded-lg">
             <Fuel className="h-4 w-4 text-muted-foreground" />
             <p className="text-xs text-muted-foreground">
-              Gas cost: ~$0.01-0.05 on Base mainnet
+              Gas cost: ~$0.001-0.01 on Base mainnet
             </p>
           </div>
           
