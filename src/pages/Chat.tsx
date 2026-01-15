@@ -65,7 +65,7 @@ function extractMessageContent(content: any): string {
     // Last resort: try to stringify but filter [object Object]
     const str = String(content);
     if (str === '[object Object]') {
-      return '[Greetings]';
+      return 'Greetings';
     }
     return str;
   }
