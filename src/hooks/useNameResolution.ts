@@ -9,9 +9,22 @@ interface NameCache {
   };
 }
 
+const STORAGE_KEY = 'primechat_name_cache_v1';
+
 // Global cache for name resolution (persists across component mounts)
-const globalNameCache: NameCache = {};
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const globalNameCache: NameCache = (() => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as NameCache;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+})();
+
+// Keep cache longer to reduce RPC pressure; refresh will still revalidate when needed.
+const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 
 // Global XMTP client reference for inbox state lookups
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -21,6 +34,21 @@ let xmtpClientRef: any = null;
 export function setXmtpClientForResolution(client: any) {
   xmtpClientRef = client;
 }
+
+let persistTimer: number | null = null;
+function persistCacheSoon() {
+  if (persistTimer) window.clearTimeout(persistTimer);
+  persistTimer = window.setTimeout(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(globalNameCache));
+    } catch {
+      // ignore quota / private mode
+    }
+  }, 250);
+}
+
+// Deduplicate concurrent name lookups per address
+const pendingNameByAddress = new Map<string, Promise<string | null>>();
 
 /**
  * Extract wallet address from XMTP inbox ID
@@ -139,25 +167,49 @@ export function useResolvedName(inboxId: string | undefined): {
         // Step 1: Resolve inbox ID to wallet address via XMTP
         const resolvedAddress = await resolveInboxIdToAddress(inboxId);
         setAddress(resolvedAddress);
-        
+
         if (!resolvedAddress) {
-          // Couldn't resolve to address, cache as null
           globalNameCache[inboxId] = {
             name: null,
             address: null,
             timestamp: Date.now(),
           };
+          persistCacheSoon();
           setName(null);
           return;
         }
-        
-        // Step 2: Look up the PrimeChat name from the registry
-        const resolvedName = await getNameByAddress(resolvedAddress);
+
+        // Step 2: Look up the PrimeChat name (deduped + cached)
+        const cacheKey = resolvedAddress.toLowerCase();
+        const existing = Object.values(globalNameCache).find(
+          (v) => v.address?.toLowerCase() === cacheKey && Date.now() - v.timestamp < CACHE_DURATION,
+        );
+        if (existing) {
+          setName(existing.name);
+          globalNameCache[inboxId] = { name: existing.name, address: resolvedAddress, timestamp: Date.now() };
+          persistCacheSoon();
+          return;
+        }
+
+        const pending = pendingNameByAddress.get(cacheKey);
+        const namePromise =
+          pending ??
+          (async () => {
+            const n = await getNameByAddress(resolvedAddress);
+            return n;
+          })();
+
+        if (!pending) pendingNameByAddress.set(cacheKey, namePromise);
+
+        const resolvedName = await namePromise;
+        pendingNameByAddress.delete(cacheKey);
+
         globalNameCache[inboxId] = {
           name: resolvedName,
           address: resolvedAddress,
           timestamp: Date.now(),
         };
+        persistCacheSoon();
         setName(resolvedName);
       } catch (error) {
         console.error('Failed to resolve name:', error);
@@ -293,5 +345,10 @@ export function clearNameCache(inboxId?: string) {
     Object.keys(globalNameCache).forEach((key) => {
       delete globalNameCache[key];
     });
+  }
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(globalNameCache));
+  } catch {
+    // ignore
   }
 }

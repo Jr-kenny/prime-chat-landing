@@ -1,10 +1,27 @@
-import { encodeFunctionData, decodeFunctionResult } from 'viem';
+import {
+  createPublicClient,
+  fallback,
+  http,
+  type Address,
+  encodeFunctionData,
+  decodeFunctionResult,
+} from 'viem';
+import { base } from 'viem/chains';
 
 // PrimeChat Name Registry Contract on Base Mainnet
 export const NAME_REGISTRY_ADDRESS = '0x962743EAe1Bbd8C9715102DB10F129f1AF47670A' as const;
 
-// Base RPC endpoint
-const BASE_RPC = 'https://mainnet.base.org';
+// Public RPCs (fallback order). These are unauthenticated endpoints; any single one may rate limit.
+const BASE_RPCS = [
+  'https://mainnet.base.org',
+  'https://base-rpc.publicnode.com',
+  'https://base.llamarpc.com',
+] as const;
+
+const publicClient = createPublicClient({
+  chain: base,
+  transport: fallback(BASE_RPCS.map((url) => http(url))),
+});
 
 // Contract ABI - only the functions we need
 export const NAME_REGISTRY_ABI = [
@@ -59,23 +76,36 @@ export const NAME_REGISTRY_ABI = [
   },
 ] as const;
 
-// Helper to call read functions via RPC
+// Lightweight retry for transient RPC 429s
+async function withRetry<T>(fn: () => Promise<T>, attempts = 2): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      // small backoff
+      await new Promise((r) => setTimeout(r, 300 * (i + 1)));
+    }
+  }
+  throw lastErr;
+}
+
+// Helper to call read functions via viem public client
 async function callContract<T>(
-  functionName: string, 
-  args: unknown[],
-  outputTypes: { name: string; type: string }[]
+  functionName: 'getNameByAddress' | 'getAddressByName' | 'hasName' | 'isNameTaken',
+  args: readonly unknown[],
 ): Promise<T> {
+  // Use a manual eth_call payload so we can stay compatible with our minimal ABI typing,
+  // while still benefiting from viem's fallback transports.
   const data = encodeFunctionData({
     abi: NAME_REGISTRY_ABI,
-    functionName: functionName as 'getNameByAddress' | 'getAddressByName' | 'hasName' | 'isNameTaken',
+    functionName,
     args: args as never,
   });
 
-  const response = await fetch(BASE_RPC, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
+  const result = await withRetry(() =>
+    publicClient.request({
       method: 'eth_call',
       params: [
         {
@@ -84,23 +114,16 @@ async function callContract<T>(
         },
         'latest',
       ],
-      id: 1,
     }),
-  });
+  );
 
-  const json = await response.json();
-  
-  if (json.error) {
-    throw new Error(json.error.message);
-  }
-
-  const result = decodeFunctionResult({
+  const decoded = decodeFunctionResult({
     abi: NAME_REGISTRY_ABI,
-    functionName: functionName as 'getNameByAddress' | 'getAddressByName' | 'hasName' | 'isNameTaken',
-    data: json.result,
+    functionName,
+    data: result as `0x${string}`,
   });
 
-  return result as T;
+  return decoded as T;
 }
 
 // Helper to get name by address
