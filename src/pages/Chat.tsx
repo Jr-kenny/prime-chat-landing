@@ -82,7 +82,7 @@ function extractMessageContent(content: any): string {
     if (content.action && content.reference) return '';
     const str = String(content);
     if (str === '[object Object]') {
-      return '[Unsupported content]';
+      return 'Greetings';
     }
     return str;
   }
