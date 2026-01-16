@@ -4,7 +4,7 @@ import { useNavigate, Link, useLocation } from "react-router-dom";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { 
   Send, Search, Settings, Plus, 
-  Smile, ArrowLeft, Users, Shield, Loader2, Check, X, ChevronDown
+  Smile, ArrowLeft, Users, Shield, Check, X, ChevronDown
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,7 +24,7 @@ import { ConversationNameDisplay } from "@/components/chat/ConversationNameDispl
 import { setXmtpClientForResolution } from "@/hooks/useNameResolution";
 import { useSessionPersistence, type ChatSession } from "@/hooks/useSessionPersistence";
 import { AttachmentPicker, AttachmentPreview, type AttachmentFile } from "@/components/chat/AttachmentPicker";
-import { MessageReactions } from "@/components/chat/MessageReactions";
+import { MessageBubble } from "@/components/chat/MessageBubble";
 
 interface DisplayConversation {
   id: string;
@@ -78,11 +78,14 @@ function extractMessageContent(content: any): string {
     if (content.content) return extractMessageContent(content.content);
     // Check for attachment
     if (content.filename) return `📎 ${content.filename}`;
-    // Check for reaction
+    // Check for reaction - skip display
     if (content.action && content.reference) return '';
+    // Check for group membership change - skip display
+    if (content.initiatedByInboxId || content.addedInboxes || content.removedInboxes) return '';
     const str = String(content);
     if (str === '[object Object]') {
-      return 'Greetings';
+      // Return greeting for unrecognized object types (like initial conversation setup)
+      return 'Hi! 👋';
     }
     return str;
   }
@@ -241,6 +244,10 @@ const Chat = () => {
     initXmtp();
   }, [walletClient, address, xmtpClient, isInitializing]);
 
+  // Throttle sync operations to prevent rate limiting
+  const lastSyncRef = useRef<number>(0);
+  const SYNC_THROTTLE_MS = 5000; // Minimum 5 seconds between full syncs
+
   // Load conversations from XMTP
   const loadConversations = useCallback(async (skipSync = false) => {
     if (!xmtpClient) return;
@@ -252,7 +259,12 @@ const Chat = () => {
         ConsentState.Denied,
       ];
 
-      if (!skipSync) {
+      // Throttle sync operations to prevent rate limiting
+      const now = Date.now();
+      const shouldSync = !skipSync && (now - lastSyncRef.current > SYNC_THROTTLE_MS);
+      
+      if (shouldSync) {
+        lastSyncRef.current = now;
         await xmtpClient.conversations.syncAll(consentStates);
       }
 
@@ -365,6 +377,8 @@ const Chat = () => {
               }));
             }
             
+            // Use skipSync=true to avoid excessive API calls on every message
+            // The list() call already fetches latest data from local DB
             await loadConversations(true);
           },
         });
@@ -857,30 +871,10 @@ const Chat = () => {
         >
           <div className="space-y-4 max-w-3xl mx-auto pb-4">
             {messages.map((message) => (
-              <motion.div
+              <MessageBubble
                 key={message.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className={`flex ${message.isOwn ? "justify-end" : "justify-start"} group`}
-              >
-                <div
-                  className={`max-w-[70%] rounded-2xl px-4 py-3 ${
-                    message.isOwn
-                      ? "bg-primary text-primary-foreground rounded-br-md"
-                      : "bg-secondary text-secondary-foreground rounded-bl-md"
-                  }`}
-                >
-                  <p className="text-sm leading-relaxed">{message.content}</p>
-                  <div className={`flex items-center justify-end gap-1 mt-1 ${
-                    message.isOwn ? "text-primary-foreground/60" : "text-muted-foreground"
-                  }`}>
-                    <span className="text-[10px]">{message.time}</span>
-                    {message.isOwn && message.status === "read" && (
-                      <span className="text-[10px]">✓✓</span>
-                    )}
-                  </div>
-                </div>
-              </motion.div>
+                message={message}
+              />
             ))}
             <div ref={messagesEndRef} />
           </div>
@@ -907,6 +901,8 @@ const Chat = () => {
           <AttachmentPreview
             attachment={pendingAttachment}
             onRemove={() => setPendingAttachment(null)}
+            onSend={handleSendMessage}
+            isSending={isSending}
           />
         </div>
       )}
