@@ -4,14 +4,26 @@ import { Wallet, User, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { useResolvedName } from "@/hooks/useNameResolution";
+import { BlockButton } from "./BlockButton";
+import { Separator } from "@/components/ui/separator";
 
 interface PeerInfoSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   peerInboxId: string | undefined;
+  isBlocked?: boolean;
+  onBlock?: () => Promise<void>;
+  onUnblock?: () => Promise<void>;
 }
 
-export const PeerInfoSheet = ({ open, onOpenChange, peerInboxId }: PeerInfoSheetProps) => {
+export const PeerInfoSheet = ({ 
+  open, 
+  onOpenChange, 
+  peerInboxId,
+  isBlocked = false,
+  onBlock,
+  onUnblock,
+}: PeerInfoSheetProps) => {
   const [copied, setCopied] = useState(false);
   const { displayName, name, address, isLoading } = useResolvedName(peerInboxId);
 
@@ -93,6 +105,19 @@ export const PeerInfoSheet = ({ open, onOpenChange, peerInboxId }: PeerInfoSheet
                     {peerInboxId}
                   </p>
                 </div>
+              )}
+
+              {/* Block/Unblock Button */}
+              {onBlock && onUnblock && (
+                <>
+                  <Separator className="my-4" />
+                  <BlockButton
+                    isBlocked={isBlocked}
+                    onBlock={onBlock}
+                    onUnblock={onUnblock}
+                    peerName={name || undefined}
+                  />
+                </>
               )}
             </>
           )}
