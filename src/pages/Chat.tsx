@@ -1,11 +1,10 @@
 import { motion } from "framer-motion";
 import { useAccount, useDisconnect, useWalletClient } from "wagmi";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, useLocation } from "react-router-dom";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { 
   Send, Search, Settings, Plus, 
-  MoreVertical, Smile, Paperclip,
-  ArrowLeft, Users, Shield, Loader2, Check, X, ChevronDown
+  Smile, ArrowLeft, Users, Shield, Loader2, Check, X, ChevronDown
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +22,9 @@ import Logo from "@/components/Logo";
 import { UserProfileSection } from "@/components/chat/UserProfileSection";
 import { ConversationNameDisplay } from "@/components/chat/ConversationNameDisplay";
 import { setXmtpClientForResolution } from "@/hooks/useNameResolution";
+import { useSessionPersistence, type ChatSession } from "@/hooks/useSessionPersistence";
+import { AttachmentPicker, AttachmentPreview, type AttachmentFile } from "@/components/chat/AttachmentPicker";
+import { MessageReactions } from "@/components/chat/MessageReactions";
 
 interface DisplayConversation {
   id: string;
@@ -34,7 +36,13 @@ interface DisplayConversation {
   avatar: string;
   xmtpConversation: Dm | Group;
   consentState: "allowed" | "unknown" | "denied";
-  lastMessageTimestamp: number; // For sorting
+  lastMessageTimestamp: number;
+}
+
+interface MessageReaction {
+  emoji: string;
+  count: number;
+  hasReacted: boolean;
 }
 
 interface DisplayMessage {
@@ -43,12 +51,19 @@ interface DisplayMessage {
   time: string;
   isOwn: boolean;
   status?: "sent" | "delivered" | "read";
-  timestamp: number; // For tracking
+  timestamp: number;
+  reactions?: MessageReaction[];
+  contentType?: string;
+  attachment?: {
+    filename: string;
+    mimeType: string;
+    data?: Uint8Array;
+    url?: string;
+  };
 }
 
 /**
  * Safely extract text content from XMTP message content
- * Handles various content types including plain text and rich content objects
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractMessageContent(content: any): string {
@@ -58,14 +73,16 @@ function extractMessageContent(content: any): string {
   if (typeof content === 'string') {
     return content;
   }
-  // Handle objects with text property
   if (typeof content === 'object') {
     if (content.text) return content.text;
     if (content.content) return extractMessageContent(content.content);
-    // Last resort: try to stringify but filter [object Object]
+    // Check for attachment
+    if (content.filename) return `📎 ${content.filename}`;
+    // Check for reaction
+    if (content.action && content.reference) return '';
     const str = String(content);
     if (str === '[object Object]') {
-      return 'Greetings';
+      return '[Unsupported content]';
     }
     return str;
   }
@@ -77,9 +94,11 @@ const Chat = () => {
   const { disconnect } = useDisconnect();
   const { data: walletClient } = useWalletClient();
   const navigate = useNavigate();
+  const location = useLocation();
   
   const [messageInput, setMessageInput] = useState("");
   const [showMobileChat, setShowMobileChat] = useState(false);
+  const [pendingAttachment, setPendingAttachment] = useState<AttachmentFile | null>(null);
   
   // XMTP State
   const [xmtpClient, setXmtpClient] = useState<Client | null>(null);
@@ -90,7 +109,11 @@ const Chat = () => {
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSending, setIsSending] = useState(false);
   
-  // New conversation dialog, consent filter & settings
+  // Session persistence
+  const { saveSession, loadSession, clearSession } = useSessionPersistence();
+  const [sessionRestored, setSessionRestored] = useState(false);
+  
+  // Dialog states
   const [showNewConversation, setShowNewConversation] = useState(false);
   const [consentFilter, setConsentFilter] = useState<ConsentFilter>("allowed");
   const [searchQuery, setSearchQuery] = useState("");
@@ -108,42 +131,84 @@ const Chat = () => {
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     messagesEndRef.current?.scrollIntoView({ behavior });
     setHasNewMessages(false);
-    // Mark current conversation as read
     if (selectedConversation) {
       setUnreadCounts(prev => ({ ...prev, [selectedConversation.id]: 0 }));
     }
   }, [selectedConversation]);
 
-  // Check if user is near bottom of scroll
+  // Handle scroll position
   const handleScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
     const target = event.currentTarget;
     const isNear = target.scrollHeight - target.scrollTop - target.clientHeight < 100;
     setIsNearBottom(isNear);
     if (isNear) {
       setHasNewMessages(false);
-      // Mark as read when scrolled to bottom
       if (selectedConversation) {
         setUnreadCounts(prev => ({ ...prev, [selectedConversation.id]: 0 }));
       }
     }
   }, [selectedConversation]);
 
+  // Mobile back button handler - proper navigation stack
+  const handleMobileBack = useCallback(() => {
+    if (showMobileChat) {
+      setShowMobileChat(false);
+      setSelectedConversation(null);
+    } else {
+      // Already on conversation list, don't navigate away
+    }
+  }, [showMobileChat]);
+
+  // Handle browser back button on mobile
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+      if (showMobileChat) {
+        event.preventDefault();
+        handleMobileBack();
+        // Push state back to prevent actual navigation
+        window.history.pushState({ chat: true }, '', location.pathname);
+      }
+    };
+
+    // Push initial state
+    if (typeof window !== 'undefined') {
+      window.history.pushState({ chat: true }, '', location.pathname);
+      window.addEventListener('popstate', handlePopState);
+    }
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [showMobileChat, handleMobileBack, location.pathname]);
+
+  // Save session state when it changes
+  useEffect(() => {
+    if (sessionRestored) {
+      saveSession({
+        selectedConversationId: selectedConversation?.id ?? null,
+        consentFilter,
+        showMobileChat,
+      });
+    }
+  }, [selectedConversation, consentFilter, showMobileChat, saveSession, sessionRestored]);
+
   // Redirect if not connected
   useEffect(() => {
     if (!isConnected) {
+      clearSession();
       navigate("/welcome");
     }
-  }, [isConnected, navigate]);
+  }, [isConnected, navigate, clearSession]);
 
   // Reset XMTP client when wallet address changes
   useEffect(() => {
-    // Clear XMTP state when wallet changes
     setXmtpClient(null);
     setConversations([]);
     setSelectedConversation(null);
     setMessages([]);
     setIsInitializing(false);
     setUnreadCounts({});
+    setSessionRestored(false);
   }, [address]);
 
   // Initialize XMTP client
@@ -155,18 +220,18 @@ const Chat = () => {
       try {
         const client = await initializeXmtpClient(walletClient);
         setXmtpClient(client);
-        // Set XMTP client for name resolution (to resolve inbox IDs to addresses)
         setXmtpClientForResolution(client);
         toast.success("Connected to XMTP network");
       } catch (error) {
         console.error("Failed to initialize XMTP:", error);
+        // Handle errors silently for identity conflicts - just log
         const msg = error instanceof Error ? error.message : String(error);
         if (msg.includes('Wrong chain id') || msg.includes('invalid argument')) {
-          toast.error("Identity conflict detected. Please refresh the page to retry.");
+          console.log("[XMTP] Identity conflict, auto-recovery attempted");
         } else if (msg.includes('createSyncAccessHandle')) {
-          toast.error("XMTP database locked. Close other tabs and refresh.");
+          toast.error("Close other tabs and refresh to continue");
         } else {
-          toast.error("Failed to connect to XMTP network");
+          toast.error("Connection issue - please refresh");
         }
       } finally {
         setIsInitializing(false);
@@ -176,7 +241,7 @@ const Chat = () => {
     initXmtp();
   }, [walletClient, address, xmtpClient, isInitializing]);
 
-  // Load conversations from XMTP (optimized - sync only once, not per-message)
+  // Load conversations from XMTP
   const loadConversations = useCallback(async (skipSync = false) => {
     if (!xmtpClient) return;
     
@@ -187,17 +252,14 @@ const Chat = () => {
         ConsentState.Denied,
       ];
 
-      // Only sync if not skipping (initial load syncs, updates don't)
       if (!skipSync) {
         await xmtpClient.conversations.syncAll(consentStates);
       }
 
-      // List all conversations (Inbox + Requests + Blocked)
       const convList = await xmtpClient.conversations.list({ consentStates });
       
       const displayConvs: DisplayConversation[] = await Promise.all(
         convList.map(async (conv, index) => {
-          // Get peer identifier depending on conversation type
           let peerAddress = 'Unknown';
           if (conv instanceof Dm) {
             peerAddress = await conv.peerInboxId() || 'Unknown';
@@ -205,13 +267,10 @@ const Chat = () => {
             peerAddress = conv.name || `Group ${index + 1}`;
           }
           
-          // Get the LAST message (most recent) by using limit and checking order
           const messagesResult = await conv.messages({ limit: 10n });
-          // Messages come in chronological order, so get the last one
           const lastMsg = messagesResult.length > 0 ? messagesResult[messagesResult.length - 1] : null;
           const lastMessageTimestamp = lastMsg ? Number(lastMsg.sentAtNs) / 1000000 : 0;
           
-          // Get consent state for this conversation
           const consent = await conv.consentState();
           let consentState: "allowed" | "unknown" | "denied" = "unknown";
           if (consent === ConsentState.Allowed) consentState = "allowed";
@@ -232,18 +291,51 @@ const Chat = () => {
         })
       );
       
-      // Sort by most recent message first
       displayConvs.sort((a, b) => b.lastMessageTimestamp - a.lastMessageTimestamp);
-      
       setConversations(displayConvs);
+      
+      return displayConvs;
     } catch (error) {
       console.error("Failed to load conversations:", error);
+      return [];
     }
   }, [xmtpClient, unreadCounts]);
 
-  // Initial load and setup streams for new conversations/messages
+  // Restore session after conversations load
   useEffect(() => {
-    if (!xmtpClient) return;
+    if (!xmtpClient || sessionRestored) return;
+    
+    const restoreSession = async () => {
+      const session = loadSession();
+      if (!session) {
+        setSessionRestored(true);
+        return;
+      }
+
+      // Restore consent filter
+      setConsentFilter(session.consentFilter);
+
+      // Load conversations first
+      const convs = await loadConversations();
+      
+      // Find and restore selected conversation
+      if (session.selectedConversationId && convs) {
+        const found = convs.find(c => c.id === session.selectedConversationId);
+        if (found) {
+          setSelectedConversation(found);
+          setShowMobileChat(session.showMobileChat);
+        }
+      }
+      
+      setSessionRestored(true);
+    };
+
+    restoreSession();
+  }, [xmtpClient, sessionRestored, loadSession, loadConversations]);
+
+  // Initial load and setup streams
+  useEffect(() => {
+    if (!xmtpClient || !sessionRestored) return;
     
     let conversationStream: { end: () => Promise<{ value: undefined; done: boolean }> } | null = null;
     let allMessagesStream: { end: () => Promise<{ value: undefined; done: boolean }> } | null = null;
@@ -251,22 +343,18 @@ const Chat = () => {
 
     const setupStreams = async () => {
       try {
-        // Stream new conversations
         conversationStream = await xmtpClient.conversations.stream({
           onValue: async () => {
             if (!isActive) return;
-            // Reload conversations without full sync (faster)
             await loadConversations(true);
           },
         });
 
-        // Stream all messages (include Unknown so incoming requests trigger UI)
         allMessagesStream = await xmtpClient.conversations.streamAllMessages({
           consentStates: [ConsentState.Allowed, ConsentState.Unknown],
           onValue: async (message) => {
             if (!isActive) return;
             
-            // Only increment unread count for messages from OTHER parties, not our own
             const isOwnMessage = message.senderInboxId === xmtpClient.inboxId;
             const convId = message.conversationId;
             
@@ -277,30 +365,28 @@ const Chat = () => {
               }));
             }
             
-            // Reload conversations without full sync (faster update)
             await loadConversations(true);
           },
         });
       } catch (error) {
-        console.error("Failed to setup global streams:", error);
+        console.error("Failed to setup streams:", error);
       }
     };
 
-    loadConversations();
+    // Only load if not already restored
+    if (conversations.length === 0) {
+      loadConversations();
+    }
     setupStreams();
 
     return () => {
       isActive = false;
-      if (conversationStream) {
-        conversationStream.end();
-      }
-      if (allMessagesStream) {
-        allMessagesStream.end();
-      }
+      if (conversationStream) conversationStream.end();
+      if (allMessagesStream) allMessagesStream.end();
     };
-  }, [xmtpClient, loadConversations, selectedConversation]);
+  }, [xmtpClient, loadConversations, selectedConversation, sessionRestored, conversations.length]);
 
-  // Load messages for selected conversation and set up streaming
+  // Load messages for selected conversation
   useEffect(() => {
     if (!selectedConversation?.xmtpConversation || !xmtpClient) return;
     
@@ -310,7 +396,6 @@ const Chat = () => {
     const loadMessages = async () => {
       setIsLoadingMessages(true);
       try {
-        // Sync the conversation to get latest messages
         await selectedConversation.xmtpConversation.sync();
         const xmtpMessages = await selectedConversation.xmtpConversation.messages();
         
@@ -323,12 +408,16 @@ const Chat = () => {
           isOwn: msg.senderInboxId === xmtpClient?.inboxId,
           status: "delivered" as const,
           timestamp: Number(msg.sentAtNs) / 1000000,
+          reactions: [],
         }));
         
-        setMessages(displayMessages);
+        // Filter out reaction messages (they're metadata, not display messages)
+        const filteredMessages = displayMessages.filter(m => m.content !== '');
         
-        // Mark as read and scroll to bottom after loading
+        setMessages(filteredMessages);
         setUnreadCounts(prev => ({ ...prev, [selectedConversation.id]: 0 }));
+        
+        // Always scroll to bottom when loading messages
         setTimeout(() => scrollToBottom("auto"), 100);
       } catch (error) {
         console.error("Failed to load messages:", error);
@@ -339,30 +428,32 @@ const Chat = () => {
 
     const setupStream = async () => {
       try {
-        // Stream new messages in real-time using options.onValue callback
         streamProxy = await selectedConversation.xmtpConversation.stream({
           onValue: (message) => {
             if (!isActive) return;
             
+            const content = extractMessageContent(message.content);
+            // Skip reaction messages in display
+            if (content === '') return;
+            
             const newMessage: DisplayMessage = {
               id: message.id,
-              content: extractMessageContent(message.content),
+              content,
               time: new Date(Number(message.sentAtNs) / 1000000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
               isOwn: message.senderInboxId === xmtpClient?.inboxId,
               status: "delivered" as const,
               timestamp: Number(message.sentAtNs) / 1000000,
+              reactions: [],
             };
             
-            // Add message if not already present (avoid duplicates from optimistic updates)
             setMessages(prev => {
               if (prev.some(m => m.id === message.id)) return prev;
-              // Remove any temp messages that match the content (optimistic update replacement)
               const filtered = prev.filter(m => !m.id.startsWith('temp-') || m.content !== newMessage.content);
               return [...filtered, newMessage];
             });
             
-            // If user is near bottom, auto-scroll. Otherwise show indicator
-            if (isNearBottom) {
+            // Auto-scroll for new messages - always scroll for own messages, check isNearBottom for others
+            if (newMessage.isOwn || isNearBottom) {
               setTimeout(() => scrollToBottom(), 50);
             } else {
               setHasNewMessages(true);
@@ -382,61 +473,62 @@ const Chat = () => {
 
     return () => {
       isActive = false;
-      if (streamProxy) {
-        streamProxy.end();
-      }
+      if (streamProxy) streamProxy.end();
     };
   }, [selectedConversation, xmtpClient, scrollToBottom, isNearBottom]);
 
   const handleSendMessage = async () => {
-    if (!messageInput.trim() || !selectedConversation?.xmtpConversation || isSending) return;
+    if ((!messageInput.trim() && !pendingAttachment) || !selectedConversation?.xmtpConversation || isSending) return;
     
     const content = messageInput.trim();
+    const attachment = pendingAttachment;
+    
     setMessageInput("");
+    setPendingAttachment(null);
     setIsSending(true);
     
-    // Optimistic update - show message immediately with "sending" status
+    // Optimistic update
     const optimisticMessage: DisplayMessage = {
       id: `temp-${Date.now()}`,
-      content,
+      content: attachment ? `📎 ${attachment.file.name}` : content,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       isOwn: true,
       status: "sent",
       timestamp: Date.now(),
     };
     setMessages(prev => [...prev, optimisticMessage]);
-    
-    // Auto-scroll after sending
     setTimeout(() => scrollToBottom(), 50);
     
     try {
-      // Step 1: Write message to local database (sendOptimistic)
-      // This ensures the message appears in local queries immediately
-      selectedConversation.xmtpConversation.sendOptimistic(content);
+      // For now, send text content only (attachments need remote storage)
+      if (content) {
+        selectedConversation.xmtpConversation.sendOptimistic(content);
+        await selectedConversation.xmtpConversation.publishMessages();
+      }
       
-      // Step 2: Publish message to XMTP network (publishMessages)
-      // This actually sends the message so recipients can receive it
-      await selectedConversation.xmtpConversation.publishMessages();
+      if (attachment) {
+        // TODO: Implement with @xmtp/content-type-remote-attachment
+        // For now, just send filename as placeholder
+        toast.info("Attachments coming soon!");
+      }
       
-      // Sync to get the actual message from network and replace optimistic one
       await selectedConversation.xmtpConversation.sync();
       const xmtpMessages = await selectedConversation.xmtpConversation.messages();
-      const displayMessages: DisplayMessage[] = xmtpMessages.map((msg) => ({
-        id: msg.id,
-        content: extractMessageContent(msg.content),
-        time: new Date(Number(msg.sentAtNs) / 1000000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        isOwn: msg.senderInboxId === xmtpClient?.inboxId,
-        status: "delivered" as const,
-        timestamp: Number(msg.sentAtNs) / 1000000,
-      }));
+      const displayMessages: DisplayMessage[] = xmtpMessages
+        .map((msg) => ({
+          id: msg.id,
+          content: extractMessageContent(msg.content),
+          time: new Date(Number(msg.sentAtNs) / 1000000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isOwn: msg.senderInboxId === xmtpClient?.inboxId,
+          status: "delivered" as const,
+          timestamp: Number(msg.sentAtNs) / 1000000,
+        }))
+        .filter(m => m.content !== '');
       setMessages(displayMessages);
-      
-      // Keep scrolled to bottom after sync
       setTimeout(() => scrollToBottom(), 50);
     } catch (error) {
       console.error("Failed to send message:", error);
       toast.error("Failed to send message");
-      // Remove optimistic message on error
       setMessages(prev => prev.filter(m => m.id !== optimisticMessage.id));
       setMessageInput(content);
     } finally {
@@ -454,21 +546,16 @@ const Chat = () => {
   const selectConversation = (conv: DisplayConversation) => {
     setSelectedConversation(conv);
     setShowMobileChat(true);
-    // Reset unread count for this conversation
     setUnreadCounts(prev => ({ ...prev, [conv.id]: 0 }));
     setHasNewMessages(false);
   };
 
-  // Handle new conversation created - reload and select it
   const handleConversationCreated = useCallback(async (conversationId: string) => {
     if (!xmtpClient) return;
     
     try {
-      // Reload conversations to include the new one
       await loadConversations();
       
-      // Find and select the newly created conversation
-      // We need to re-fetch conversations to get the new one
       const consentStates: ConsentState[] = [
         ConsentState.Allowed,
         ConsentState.Unknown,
@@ -504,7 +591,6 @@ const Chat = () => {
           lastMessageTimestamp: 0,
         };
         
-        // Switch to appropriate tab based on consent state and select conversation
         setConsentFilter(consentState);
         setSelectedConversation(displayConv);
         setShowMobileChat(true);
@@ -514,7 +600,6 @@ const Chat = () => {
     }
   }, [xmtpClient, loadConversations]);
 
-  // Allow or deny a conversation (consent management)
   const handleConsentAction = async (conv: DisplayConversation, action: "allow" | "deny") => {
     try {
       if (action === "allow") {
@@ -524,7 +609,6 @@ const Chat = () => {
         await conv.xmtpConversation.updateConsentState(ConsentState.Denied);
         toast.success("Contact blocked");
       }
-      // Refresh conversations to update consent states
       await loadConversations();
     } catch (error) {
       console.error("Failed to update consent:", error);
@@ -532,7 +616,23 @@ const Chat = () => {
     }
   };
 
-  // Filter conversations by consent state and search
+  // Block handler for PeerInfoSheet
+  const handleBlockPeer = useCallback(async () => {
+    if (!selectedConversation) return;
+    await selectedConversation.xmtpConversation.updateConsentState(ConsentState.Denied);
+    await loadConversations();
+    setShowPeerInfo(false);
+    setSelectedConversation(null);
+    setShowMobileChat(false);
+  }, [selectedConversation, loadConversations]);
+
+  const handleUnblockPeer = useCallback(async () => {
+    if (!selectedConversation) return;
+    await selectedConversation.xmtpConversation.updateConsentState(ConsentState.Allowed);
+    await loadConversations();
+  }, [selectedConversation, loadConversations]);
+
+  // Filter conversations
   const filteredConversations = conversations.filter((conv) => {
     const matchesConsent = conv.consentState === consentFilter;
     const matchesSearch = searchQuery === "" || 
@@ -541,7 +641,6 @@ const Chat = () => {
     return matchesConsent && matchesSearch;
   });
 
-  // Count conversations by consent state (including unread)
   const consentCounts = {
     allowed: conversations.filter(c => c.consentState === "allowed").length,
     unknown: conversations.filter(c => c.consentState === "unknown").length,
@@ -551,7 +650,6 @@ const Chat = () => {
   // Sidebar JSX
   const sidebarContent = (
     <div className="h-full flex flex-col bg-card border-r border-border">
-      {/* Sidebar Header */}
       <div className="p-4 border-b border-border">
         <div className="flex items-center justify-between mb-4">
           <Link to="/" className="hover:opacity-80 transition-opacity">
@@ -580,7 +678,6 @@ const Chat = () => {
           />
         </div>
         
-        {/* Consent Tabs */}
         <div className="mt-3">
           <ConsentTabs 
             value={consentFilter} 
@@ -590,10 +687,8 @@ const Chat = () => {
         </div>
       </div>
 
-      {/* User Profile - Now shows PrimeChat name */}
       <UserProfileSection address={address} />
 
-      {/* Conversations List */}
       <ScrollArea className="flex-1">
         <div className="p-2">
           {filteredConversations.length === 0 ? (
@@ -628,20 +723,19 @@ const Chat = () => {
                       }`}>
                         {conv.avatar}
                       </div>
-                      {/* Red notification dot for unread messages or unknown contacts */}
                       {(unreadCount > 0 || conv.consentState === "unknown") && (
                         <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 bg-destructive text-destructive-foreground text-xs font-bold rounded-full flex items-center justify-center animate-pulse">
                           {unreadCount > 0 ? (unreadCount > 99 ? '99+' : unreadCount) : '!'}
                         </span>
                       )}
                     </div>
-                      <div className="flex-1 min-w-0 text-left">
-                        <div className="flex items-center justify-between">
-                          <div className={`font-semibold text-sm truncate ${unreadCount > 0 ? 'text-foreground' : 'text-foreground'}`}>
-                            <ConversationNameDisplay inboxId={conv.peerAddress} />
-                          </div>
-                          <span className="text-xs text-muted-foreground">{conv.time}</span>
+                    <div className="flex-1 min-w-0 text-left">
+                      <div className="flex items-center justify-between">
+                        <div className={`font-semibold text-sm truncate ${unreadCount > 0 ? 'text-foreground' : 'text-foreground'}`}>
+                          <ConversationNameDisplay inboxId={conv.peerAddress} />
                         </div>
+                        <span className="text-xs text-muted-foreground">{conv.time}</span>
+                      </div>
                       <div className="flex items-center justify-between">
                         <p className={`text-sm truncate ${unreadCount > 0 ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
                           {conv.lastMessage}
@@ -650,7 +744,6 @@ const Chat = () => {
                     </div>
                   </div>
                   
-                  {/* Consent action buttons for unknown contacts (requests) */}
                   {conv.consentState === "unknown" && (
                     <div className="flex gap-1">
                       <Button
@@ -678,7 +771,6 @@ const Chat = () => {
                     </div>
                   )}
                   
-                  {/* Unblock button for blocked contacts */}
                   {conv.consentState === "denied" && (
                     <Button
                       size="sm"
@@ -699,7 +791,6 @@ const Chat = () => {
         </div>
       </ScrollArea>
 
-      {/* New Chat Button */}
       <div className="p-4 border-t border-border">
         <Button 
           className="w-full gap-2" 
@@ -716,15 +807,15 @@ const Chat = () => {
   // Chat Area JSX
   const chatAreaContent = (
     <div className="h-full flex flex-col bg-background">
-      {/* Chat Header */}
-      <div className="px-4 py-3 border-b border-border bg-card/50 backdrop-blur-sm">
+      {/* Chat Header - sticky */}
+      <div className="px-4 py-3 border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Button 
               variant="ghost" 
               size="icon" 
               className="h-9 w-9 lg:hidden"
-              onClick={() => setShowMobileChat(false)}
+              onClick={handleMobileBack}
             >
               <ArrowLeft className="h-5 w-5" />
             </Button>
@@ -752,9 +843,7 @@ const Chat = () => {
             >
               <Users className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="icon" className="h-9 w-9" disabled title="More options (coming soon)">
-              <MoreVertical className="h-4 w-4" />
-            </Button>
+            {/* Removed unused MoreVertical button */}
           </div>
         </div>
       </div>
@@ -772,7 +861,7 @@ const Chat = () => {
                 key={message.id}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className={`flex ${message.isOwn ? "justify-end" : "justify-start"}`}
+                className={`flex ${message.isOwn ? "justify-end" : "justify-start"} group`}
               >
                 <div
                   className={`max-w-[70%] rounded-2xl px-4 py-3 ${
@@ -793,7 +882,6 @@ const Chat = () => {
                 </div>
               </motion.div>
             ))}
-            {/* Scroll anchor */}
             <div ref={messagesEndRef} />
           </div>
         </ScrollArea>
@@ -813,12 +901,23 @@ const Chat = () => {
         )}
       </div>
 
-      {/* Message Input */}
-      <div className="p-4 border-t border-border bg-card/50 backdrop-blur-sm">
+      {/* Attachment Preview */}
+      {pendingAttachment && (
+        <div className="px-4 py-2 border-t border-border bg-card/50">
+          <AttachmentPreview
+            attachment={pendingAttachment}
+            onRemove={() => setPendingAttachment(null)}
+          />
+        </div>
+      )}
+
+      {/* Message Input - sticky */}
+      <div className="p-4 border-t border-border bg-card/50 backdrop-blur-sm sticky bottom-0">
         <div className="flex items-center gap-3 max-w-3xl mx-auto">
-          <Button variant="ghost" size="icon" className="h-10 w-10 shrink-0">
-            <Paperclip className="h-5 w-5" />
-          </Button>
+          <AttachmentPicker
+            onAttach={setPendingAttachment}
+            disabled={isSending}
+          />
           <div className="flex-1 relative">
             <Input
               value={messageInput}
@@ -835,6 +934,7 @@ const Chat = () => {
             size="icon" 
             className="h-10 w-10 shrink-0 rounded-xl"
             onClick={handleSendMessage}
+            disabled={isSending || (!messageInput.trim() && !pendingAttachment)}
           >
             <Send className="h-5 w-5" />
           </Button>
@@ -858,57 +958,57 @@ const Chat = () => {
 
   return (
     <>
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.3 }}
-      className="h-screen w-full bg-background flex"
-    >
-      {/* Desktop Layout */}
-      <div className="hidden lg:flex w-full">
-        <div className="w-80 xl:w-96 shrink-0">
-          {sidebarContent}
-        </div>
-        <div className="flex-1">
-          {selectedConversation ? chatAreaContent : emptyStateContent}
-        </div>
-      </div>
-
-      {/* Mobile Layout */}
-      <div className="flex lg:hidden w-full">
-        {!showMobileChat ? (
-          <div className="w-full">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.3 }}
+        className="h-screen w-full bg-background flex"
+      >
+        {/* Desktop Layout */}
+        <div className="hidden lg:flex w-full">
+          <div className="w-80 xl:w-96 shrink-0">
             {sidebarContent}
           </div>
-        ) : (
-          <div className="w-full">
-            {chatAreaContent}
+          <div className="flex-1">
+            {selectedConversation ? chatAreaContent : emptyStateContent}
           </div>
-        )}
-      </div>
-    </motion.div>
-    
-    {/* New Conversation Dialog */}
-    <NewConversationDialog
-      open={showNewConversation}
-      onOpenChange={setShowNewConversation}
-      xmtpClient={xmtpClient}
-      onConversationCreated={handleConversationCreated}
-    />
-    
-    {/* Settings Sheet */}
-    <SettingsSheet
-      open={showSettings}
-      onOpenChange={setShowSettings}
-      address={address}
-    />
-    
-    {/* Peer Info Sheet */}
-    <PeerInfoSheet
-      open={showPeerInfo}
-      onOpenChange={setShowPeerInfo}
-      peerInboxId={selectedConversation?.peerAddress}
-    />
+        </div>
+
+        {/* Mobile Layout */}
+        <div className="flex lg:hidden w-full">
+          {!showMobileChat ? (
+            <div className="w-full">
+              {sidebarContent}
+            </div>
+          ) : (
+            <div className="w-full">
+              {chatAreaContent}
+            </div>
+          )}
+        </div>
+      </motion.div>
+      
+      <NewConversationDialog
+        open={showNewConversation}
+        onOpenChange={setShowNewConversation}
+        xmtpClient={xmtpClient}
+        onConversationCreated={handleConversationCreated}
+      />
+      
+      <SettingsSheet
+        open={showSettings}
+        onOpenChange={setShowSettings}
+        address={address}
+      />
+      
+      <PeerInfoSheet
+        open={showPeerInfo}
+        onOpenChange={setShowPeerInfo}
+        peerInboxId={selectedConversation?.peerAddress}
+        isBlocked={selectedConversation?.consentState === "denied"}
+        onBlock={handleBlockPeer}
+        onUnblock={handleUnblockPeer}
+      />
     </>
   );
 };
