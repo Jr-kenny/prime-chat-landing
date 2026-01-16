@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback } from 'react';
-import { Paperclip, Image, File, X, Loader2 } from 'lucide-react';
+import { Paperclip, Image, File, X, Loader2, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Popover,
@@ -74,8 +74,9 @@ export const AttachmentPicker = ({ onAttach, disabled }: AttachmentPickerProps) 
         <Button
           variant="ghost"
           size="icon"
-          className="h-10 w-10 shrink-0"
+          className="h-10 w-10 shrink-0 touch-manipulation"
           disabled={disabled || isLoading}
+          type="button"
         >
           {isLoading ? (
             <Loader2 className="h-5 w-5 animate-spin" />
@@ -84,23 +85,30 @@ export const AttachmentPicker = ({ onAttach, disabled }: AttachmentPickerProps) 
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent side="top" className="w-48 p-2" align="start">
+      <PopoverContent 
+        side="top" 
+        className="w-48 p-2" 
+        align="start"
+        sideOffset={8}
+      >
         <div className="space-y-1">
           <Button
             variant="ghost"
-            className="w-full justify-start gap-2"
+            className="w-full justify-start gap-2 h-12 touch-manipulation"
             onClick={() => imageInputRef.current?.click()}
+            type="button"
           >
-            <Image className="h-4 w-4" />
-            Photo
+            <Image className="h-5 w-5" />
+            <span className="text-base">Photo</span>
           </Button>
           <Button
             variant="ghost"
-            className="w-full justify-start gap-2"
+            className="w-full justify-start gap-2 h-12 touch-manipulation"
             onClick={() => fileInputRef.current?.click()}
+            type="button"
           >
-            <File className="h-4 w-4" />
-            Document
+            <File className="h-5 w-5" />
+            <span className="text-base">Document</span>
           </Button>
         </div>
 
@@ -124,40 +132,63 @@ export const AttachmentPicker = ({ onAttach, disabled }: AttachmentPickerProps) 
   );
 };
 
-// Preview component for pending attachment
+// Preview component for pending attachment with send button
 interface AttachmentPreviewProps {
   attachment: AttachmentFile;
   onRemove: () => void;
+  onSend?: () => void;
+  isSending?: boolean;
 }
 
-export const AttachmentPreview = ({ attachment, onRemove }: AttachmentPreviewProps) => {
+export const AttachmentPreview = ({ attachment, onRemove, onSend, isSending }: AttachmentPreviewProps) => {
   return (
-    <div className="relative inline-flex items-center gap-2 p-2 bg-secondary/50 rounded-lg max-w-xs">
-      {attachment.preview ? (
-        <img
-          src={attachment.preview}
-          alt="Preview"
-          className="h-12 w-12 object-cover rounded"
-        />
-      ) : (
-        <div className="h-12 w-12 bg-secondary rounded flex items-center justify-center">
-          <File className="h-6 w-6 text-muted-foreground" />
+    <div className="flex items-center gap-3 p-3 bg-secondary/50 rounded-lg">
+      <div className="relative flex items-center gap-2 flex-1 min-w-0">
+        {attachment.preview ? (
+          <img
+            src={attachment.preview}
+            alt="Preview"
+            className="h-16 w-16 object-cover rounded-lg"
+          />
+        ) : (
+          <div className="h-16 w-16 bg-secondary rounded-lg flex items-center justify-center shrink-0">
+            <File className="h-8 w-8 text-muted-foreground" />
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium truncate">{attachment.file.name}</p>
+          <p className="text-xs text-muted-foreground">
+            {(attachment.file.size / 1024).toFixed(1)} KB
+          </p>
         </div>
-      )}
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate">{attachment.file.name}</p>
-        <p className="text-xs text-muted-foreground">
-          {(attachment.file.size / 1024).toFixed(1)} KB
-        </p>
       </div>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-6 w-6 absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full hover:bg-destructive/90"
-        onClick={onRemove}
-      >
-        <X className="h-3 w-3" />
-      </Button>
+      
+      <div className="flex items-center gap-2 shrink-0">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-10 w-10 text-muted-foreground hover:text-destructive touch-manipulation"
+          onClick={onRemove}
+          type="button"
+        >
+          <X className="h-5 w-5" />
+        </Button>
+        {onSend && (
+          <Button
+            size="icon"
+            className="h-10 w-10 rounded-lg touch-manipulation"
+            onClick={onSend}
+            disabled={isSending}
+            type="button"
+          >
+            {isSending ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <Send className="h-5 w-5" />
+            )}
+          </Button>
+        )}
+      </div>
     </div>
   );
 };
