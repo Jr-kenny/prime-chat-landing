@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback } from 'react';
-import { Paperclip, Image, File, X, Loader2, Send } from 'lucide-react';
+import { Paperclip, Image, File, X, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Popover,
@@ -15,6 +15,7 @@ export interface AttachmentFile {
   file: File;
   preview?: string;
   type: 'image' | 'file';
+  data?: Uint8Array;
 }
 
 interface AttachmentPickerProps {
@@ -35,13 +36,17 @@ export const AttachmentPicker = ({ onAttach, disabled }: AttachmentPickerProps) 
 
       // Check file size
       if (file.size > MAX_INLINE_SIZE) {
-        toast.error('File too large. Maximum size is 1MB.');
+        toast.error('File too large. Maximum size is 1MB for now.');
         return;
       }
 
       setIsLoading(true);
       try {
         let preview: string | undefined;
+
+        // Read file as array buffer for XMTP
+        const arrayBuffer = await file.arrayBuffer();
+        const data = new Uint8Array(arrayBuffer);
 
         // Generate preview for images
         if (type === 'image' && file.type.startsWith('image/')) {
@@ -53,7 +58,7 @@ export const AttachmentPicker = ({ onAttach, disabled }: AttachmentPickerProps) 
           });
         }
 
-        onAttach({ file, preview, type });
+        onAttach({ file, preview, type, data });
         setIsOpen(false);
       } catch (error) {
         console.error('Failed to process attachment:', error);
@@ -132,15 +137,13 @@ export const AttachmentPicker = ({ onAttach, disabled }: AttachmentPickerProps) 
   );
 };
 
-// Preview component for pending attachment with send button
+// Preview component for pending attachment (no separate send button - uses main send)
 interface AttachmentPreviewProps {
   attachment: AttachmentFile;
   onRemove: () => void;
-  onSend?: () => void;
-  isSending?: boolean;
 }
 
-export const AttachmentPreview = ({ attachment, onRemove, onSend, isSending }: AttachmentPreviewProps) => {
+export const AttachmentPreview = ({ attachment, onRemove }: AttachmentPreviewProps) => {
   return (
     <div className="flex items-center gap-3 p-3 bg-secondary/50 rounded-lg">
       <div className="relative flex items-center gap-2 flex-1 min-w-0">
@@ -158,37 +161,20 @@ export const AttachmentPreview = ({ attachment, onRemove, onSend, isSending }: A
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium truncate">{attachment.file.name}</p>
           <p className="text-xs text-muted-foreground">
-            {(attachment.file.size / 1024).toFixed(1)} KB
+            {(attachment.file.size / 1024).toFixed(1)} KB • Press send to share
           </p>
         </div>
       </div>
       
-      <div className="flex items-center gap-2 shrink-0">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-10 w-10 text-muted-foreground hover:text-destructive touch-manipulation"
-          onClick={onRemove}
-          type="button"
-        >
-          <X className="h-5 w-5" />
-        </Button>
-        {onSend && (
-          <Button
-            size="icon"
-            className="h-10 w-10 rounded-lg touch-manipulation"
-            onClick={onSend}
-            disabled={isSending}
-            type="button"
-          >
-            {isSending ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
-            ) : (
-              <Send className="h-5 w-5" />
-            )}
-          </Button>
-        )}
-      </div>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-10 w-10 text-muted-foreground hover:text-destructive touch-manipulation shrink-0"
+        onClick={onRemove}
+        type="button"
+      >
+        <X className="h-5 w-5" />
+      </Button>
     </div>
   );
 };
