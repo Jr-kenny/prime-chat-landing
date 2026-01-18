@@ -6,9 +6,10 @@
 import { ContentTypeReaction, ReactionCodec, type Reaction } from '@xmtp/content-type-reaction';
 import { ContentTypeRemoteAttachment, RemoteAttachmentCodec, type RemoteAttachment } from '@xmtp/content-type-remote-attachment';
 import { ContentTypeReply, ReplyCodec, type Reply } from '@xmtp/content-type-reply';
+import { ContentTypeText } from '@xmtp/content-type-text';
 
 // Re-export types and content types
-export { ContentTypeReaction, ContentTypeRemoteAttachment, ContentTypeReply };
+export { ContentTypeReaction, ContentTypeRemoteAttachment, ContentTypeReply, ContentTypeText };
 export type { Reaction, RemoteAttachment, Reply };
 
 // Codec instances for registration
@@ -33,7 +34,8 @@ export function createReaction(
 }
 
 /**
- * Create a reply payload for XMTP
+ * Create a reply payload for XMTP browser-sdk v5
+ * The Reply type requires: reference, content, and contentType
  */
 export function createReply(
   referenceMessageId: string,
@@ -41,10 +43,9 @@ export function createReply(
 ): Reply {
   return {
     reference: referenceMessageId,
-    content: {
-      text: replyContent,
-    },
-  } as Reply;
+    content: replyContent,
+    contentType: ContentTypeText,
+  };
 }
 
 /**

@@ -18,6 +18,7 @@ const App = () => (
   <WagmiProvider config={config}>
     <QueryClientProvider client={queryClient}>
       <RainbowKitProvider
+        modalSize="compact"
         theme={{
           lightMode: lightTheme({
             accentColor: "#111111",

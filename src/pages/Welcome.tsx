@@ -140,8 +140,18 @@ const Welcome = () => {
                     if (!connected) {
                       return (
                         <button
-                          onClick={openConnectModal}
-                          className="px-10 py-4 bg-primary text-primary-foreground rounded-full font-medium text-base hover:opacity-90 transition-opacity shadow-lg hover:shadow-xl"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            openConnectModal();
+                          }}
+                          onTouchEnd={(e) => {
+                            e.preventDefault();
+                            openConnectModal();
+                          }}
+                          type="button"
+                          className="px-10 py-4 bg-primary text-primary-foreground rounded-full font-medium text-base hover:opacity-90 transition-opacity shadow-lg hover:shadow-xl touch-manipulation select-none cursor-pointer active:scale-95"
+                          style={{ WebkitTapHighlightColor: 'transparent' }}
                         >
                           Connect Wallet
                         </button>
