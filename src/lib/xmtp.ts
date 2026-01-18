@@ -1,5 +1,6 @@
 import { Client, type Signer } from '@xmtp/browser-sdk';
 import { type WalletClient, toBytes } from 'viem';
+import { reactionCodec, remoteAttachmentCodec, replyCodec } from '@/lib/xmtpCodecs';
 
 export const createXmtpSigner = (walletClient: WalletClient): Signer => {
   const account = walletClient.account;
@@ -83,8 +84,11 @@ export const initializeXmtpClient = async (
     const client = await Client.create(signer, {
       env: 'production', // XMTP mainnet
       appVersion: 'PrimeChat/1.0',
+      codecs: [reactionCodec, remoteAttachmentCodec, replyCodec],
     });
-    return client;
+
+    // The SDK infers a wider content-type union when codecs are provided; cast to our app-wide client type.
+    return client as unknown as Client;
   } catch (error) {
     console.error('[XMTP] Client creation failed:', error);
 
